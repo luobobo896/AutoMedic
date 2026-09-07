@@ -1,0 +1,16 @@
+.git
+.gitignore
+.github
+.workbuddy
+docs
+.deploy-tmp
+node_modules
+web/node_modules
+web/dist
+server/bin
+server/data
+**/*.db
+**/*.log
+.env
+.DS_Store
+README.md

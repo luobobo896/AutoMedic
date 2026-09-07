@@ -1,0 +1,78 @@
+# ============================================================
+# AutoMedic — 事件驱动的 dsh 全自动/半自动 Bug 修复平台
+# 快速启动：docker compose up -d
+# 访问：http://localhost:8080
+# ============================================================
+
+services:
+  automedic:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DSH_VERSION: latest
+    image: automedic/automedic:latest
+    container_name: automedic
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # --- 必填（生产环境） ---
+      AUTOMEDIC_SERVER_ADMIN_TOKEN: ${AUTOMEDIC_ADMIN_TOKEN:-change-me}
+      # 留空时容器首次启动会在数据卷生成并复用随机密钥（/app/data/.secret_key）
+      AUTOMEDIC_SECURITY_SECRET_KEY: ${AUTOMEDIC_SECRET_KEY:-}
+      # --- 可选覆盖 ---
+      AUTOMEDIC_SERVER_MODE: release
+      AUTOMEDIC_DB_DRIVER: ${AUTOMEDIC_DB_DRIVER:-sqlite}
+      AUTOMEDIC_DB_DSN: ${AUTOMEDIC_DB_DSN:-/app/data/automedic.db}
+      AUTOMEDIC_DSH_BIN: /usr/local/bin/dsh
+      TZ: Asia/Shanghai
+    volumes:
+      - automedic-data:/app/data
+      # 如需复用宿主机上已安装并登录过的 dsh，可挂载其配置目录
+      # - ~/.dsh:/root/.dsh:ro
+      # 如需使用宿主机 SSH 私钥（只读）
+      # - ~/.ssh:/root/.ssh:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # depends_on:
+    #   mysql:
+    #     condition: service_healthy
+
+  # ----------------------------------------------------------
+  # 可选：MySQL 8（默认用 SQLite，小规模可直接跑）
+  # 启用方式：
+  #   1) 取消下面 mysql 服务与 depends_on 的注释
+  #   2) 设置 AUTOMEDIC_DB_DRIVER=mysql
+  #   3) AUTOMEDIC_DB_DSN=automedic:automedic@tcp(mysql:3306)/automedic?charset=utf8mb4&parseTime=True&loc=Local
+  #   4) 首次启动前手动执行 server/migrations/001_init.mysql.sql
+  # ----------------------------------------------------------
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: automedic-mysql
+  #   restart: unless-stopped
+  #   command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: rootpass
+  #     MYSQL_DATABASE: automedic
+  #     MYSQL_USER: automedic
+  #     MYSQL_PASSWORD: automedic
+  #     TZ: Asia/Shanghai
+  #   volumes:
+  #     - mysql-data:/var/lib/mysql
+  #     - ./server/migrations:/docker-entrypoint-initdb.d:ro
+  #   ports:
+  #     - "3306:3306"
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-prootpass"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+
+volumes:
+  automedic-data:
+  # mysql-data:

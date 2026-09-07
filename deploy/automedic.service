@@ -1,0 +1,41 @@
+# ============================================================
+# AutoMedic systemd 服务单元（裸机部署用）
+# 安装：
+#   sudo cp deploy/automedic.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now automedic
+# ============================================================
+[Unit]
+Description=AutoMedic - Event-driven dsh auto bugfix platform
+Documentation=https://github.com/automedic/automedic
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=automedic
+Group=automedic
+WorkingDirectory=/opt/automedic
+ExecStart=/opt/automedic/automedic-server -config /opt/automedic/configs/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# 环境变量（生产环境请勿把密钥写进单元文件，改用 EnvironmentFile）
+EnvironmentFile=-/opt/automedic/.env
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=false
+ReadWritePaths=/opt/automedic/data
+
+# 资源限制（dsh 单次修复可能较耗内存）
+LimitNOFILE=65535
+MemoryMax=8G
+
+[Install]
+WantedBy=multi-user.target

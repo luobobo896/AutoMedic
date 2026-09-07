@@ -1,0 +1,57 @@
+server:
+  addr: ":8080"
+  mode: "debug"
+  # 前端构建产物目录；留空则不托管静态资源（开发模式下由 vite dev server 提供前端）
+  web_dir: "../web/dist"
+  # 管理 API 鉴权令牌，前端需在请求头携带 X-Admin-Token
+  admin_token: "change-me"
+  read_timeout: 60
+  write_timeout: 300
+
+db:
+  driver: "sqlite"
+  dsn: "data/automedic.db"
+  max_open: 50
+  max_idle: 10
+  log_level: "warn"
+
+security:
+  # 敏感字段（git 凭证、厂家 API Key）加密主密钥，至少 32 字节
+  # 生产环境请通过环境变量 AUTOMEDIC_SECURITY_SECRET_KEY 注入
+  secret_key: "automedic-default-secret-key-please-change"
+
+dsh:
+  # DeepSeek Harness 可执行文件路径（绝对路径更稳妥）
+  bin: "/Users/hanson/.local/share/fnm/node-versions/v25.9.0/installation/bin/dsh"
+  home: ""
+  # 命令模板：headless profile 只接受一个 task 文本参数，
+  # 模型与上下文通过 --patch 注入（见 patch_template）
+  command_template: '{{.Bin}} --profile headless {{.Patches}} "$(cat {{.TaskFile}})"'
+  use_shell: true
+  timeout_sec: 1800
+  # workspace-write：dsh 仅能在隔离工作区内写文件
+  permission_mode: "workspace-write"
+  instruction_file: "AUTOMEDIC.md"
+  output_format: "text"
+  # 传给 dsh 进程的额外环境变量（dsh 依赖 node，需保证 PATH 中 node 可用）
+  env:
+    - "DSH_TELEMETRY_MODE=DISABLED"
+    - "PATH=/Users/hanson/.local/share/fnm/node-versions/v25.9.0/installation/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+git:
+  workspace_root: "data/workspaces"
+  depth: 1
+  reuse_workspace: true
+  branch_prefix: "automedic/fix-"
+  author_name: "AutoMedic"
+  author_email: "automedic@local"
+  auto_push: true
+  release_hook: ""
+  bin: "git"
+  keep_days: 7
+
+log:
+  level: "info"
+  dir: ""
+  retain: 14
+  format: "text"

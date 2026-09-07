@@ -1,0 +1,30 @@
+# ---- 依赖 ----
+node_modules/
+web/node_modules
+
+# ---- 构建产物 ----
+server/bin/
+web/dist/
+web/dist-ssr/
+
+# ---- 运行时数据 ----
+server/data/
+*.db
+*.db-shm
+*.db-wal
+
+# ---- 本地配置 / 密钥 ----
+.env
+*.local
+server/configs/config.local.yaml
+
+# ---- 日志 ----
+logs/
+*.log
+
+# ---- 编辑器 / 系统 ----
+.DS_Store
+.idea/
+.vscode/
+*.swp
+Thumbs.db

@@ -1,0 +1,120 @@
+:root {
+  --am-bg: #0f1420;
+  --am-bg-elevated: #171d2b;
+  --am-border: #262d3d;
+  --am-text: #e5e9f0;
+  --am-text-dim: #8b94a7;
+  --am-primary: #4f8cff;
+  --am-success: #37b24d;
+  --am-warning: #f59f00;
+  --am-danger: #f0506e;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: var(--am-bg);
+  color: var(--am-text);
+}
+
+a { text-decoration: none; }
+
+.am-page {
+  padding: 16px;
+}
+
+.am-card {
+  background: var(--am-bg-elevated);
+  border: 1px solid var(--am-border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.am-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.am-flex-1 { flex: 1; }
+
+.am-mono {
+  font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.am-text-dim { color: var(--am-text-dim); }
+
+.am-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.am-stat {
+  background: var(--am-bg-elevated);
+  border: 1px solid var(--am-border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.am-stat .label { font-size: 13px; color: var(--am-text-dim); }
+.am-stat .value { font-size: 26px; font-weight: 600; margin-top: 6px; }
+
+.am-terminal {
+  background: #0b0e15;
+  border: 1px solid var(--am-border);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #c8d3e6;
+  height: 460px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.am-terminal .line-sys { color: #7aa2f7; }
+.am-terminal .line-stderr { color: #f7768e; }
+.am-terminal .line-stdout { color: #c8d3e6; }
+
+.am-diff {
+  background: #0b0e15;
+  border: 1px solid var(--am-border);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.am-diff .add { color: #7fd962; }
+.am-diff .del { color: #f7768e; }
+.am-diff .hunk { color: #7aa2f7; }
+
+/* Element Plus 深色适配 */
+.el-card { --el-card-bg-color: var(--am-bg-elevated); border-color: var(--am-border); }
+.el-table { --el-table-bg-color: var(--am-bg-elevated); --el-table-tr-bg-color: var(--am-bg-elevated);
+  --el-table-header-bg-color: #1b2231; --el-table-border-color: var(--am-border);
+  --el-table-text-color: var(--am-text); --el-table-header-text-color: var(--am-text-dim); }
+.el-drawer { --el-drawer-bg-color: var(--am-bg-elevated); }
+.el-dialog { --el-dialog-bg-color: var(--am-bg-elevated); }
+.el-input__wrapper, .el-textarea__inner { background-color: #121826; }
+.el-pagination { --el-pagination-bg-color: transparent; --el-pagination-text-color: var(--am-text); }
