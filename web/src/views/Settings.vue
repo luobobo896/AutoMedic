@@ -50,6 +50,24 @@
     </div>
 
     <div class="am-card">
+      <div class="am-toolbar"><span style="font-weight:600">Open Code Review</span></div>
+      <el-form :model="ocr" label-width="160px">
+        <el-form-item label="ocr 可执行文件">
+          <el-input v-model="ocr.bin" placeholder="ocr 或绝对路径" />
+        </el-form-item>
+        <el-form-item label="单次审查超时">
+          <el-input-number v-model="ocr.timeout_sec" :min="60" :step="60" /> 秒
+        </el-form-item>
+        <el-form-item label="额外环境变量">
+          <el-input v-model="ocrEnvText" type="textarea" :rows="3" placeholder="每行一个 KEY=VALUE，给 OCR 自己的 LLM 配置用" />
+          <div class="am-text-dim" style="font-size:12px;margin-top:4px">
+            仓库「审查」按钮调用官方 `ocr` CLI，不走 dsh。OCR 需单独配置模型（`ocr config provider`），不要和 dsh 抢同一套密钥。
+          </div>
+        </el-form-item>
+      </el-form>
+    </div>
+
+    <div class="am-card">
       <div class="am-toolbar"><span style="font-weight:600">Git 与发布</span></div>
       <el-form :model="git" label-width="160px">
         <el-form-item label="隔离工作区根目录"><el-input v-model="git.workspace_root" /></el-form-item>
@@ -92,13 +110,17 @@ import { ElMessage } from 'element-plus'
 
 const dsh = ref({})
 const git = ref({})
+const ocr = ref({})
 const envText = ref('')
+const ocrEnvText = ref('')
 
 async function load() {
   const r = await getSettings()
   dsh.value = r.data?.dsh || {}
   git.value = r.data?.git || {}
+  ocr.value = r.data?.ocr || {}
   envText.value = (dsh.value.env || []).join('\n')
+  ocrEnvText.value = (ocr.value.env || []).join('\n')
 }
 
 async function save() {
@@ -112,6 +134,11 @@ async function save() {
       command_template: dsh.value.command_template,
       patch_template: dsh.value.patch_template,
       env: envText.value.split('\n').map(s => s.trim()).filter(Boolean)
+    },
+    ocr: {
+      bin: ocr.value.bin,
+      timeout_sec: ocr.value.timeout_sec,
+      env: ocrEnvText.value.split('\n').map(s => s.trim()).filter(Boolean)
     },
     git: {
       workspace_root: git.value.workspace_root,

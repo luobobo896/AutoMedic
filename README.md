@@ -99,7 +99,7 @@ automedic/
 │       └── ws/                  # WebSocket Hub（任务终端广播）
 ├── web/                         # Vue3 + Element Plus 前端
 │   └── src/views/               # 13 个页面：概览/项目/仓库/规则/凭证/模型配置/
-│                                #   令牌/事件/任务/任务详情/统计/设置
+│                                #   令牌/事件/任务/任务详情/统计/设置/目录树/审查
 ├── deploy/                      # systemd 单元、Nginx 反代、可选 ingest sidecar
 ├── scripts/                     # build.sh / dev.sh / test.sh
 ├── docs/                        # 部署 / 接口 / dsh 集成 / 采集接入（Sentry、Loki）
@@ -115,7 +115,7 @@ automedic/
 | --- | --- |
 | **事件监听与任务管理** | 令牌鉴权的 HTTP 投递接口；8 种任务状态；全自动/半自动双模式；worker 池 + 崩溃恢复 |
 | **修复策略与过滤** | 优先级规则匹配；排除关键字拦截业务拒绝与第三方故障；频次阈值抑制抖动；指纹冷却 |
-| **多仓库项目管理** | 项目 → 多仓库；仓库可绑定凭证与模型；项目详情可浏览远端目录树；`repo_hint` 缩小定位范围 |
+| **多仓库项目管理** | 项目 → 多仓库；仓库可绑定凭证与模型；项目详情可浏览远端目录树；可手动 OCR 审查后勾选半自动修复；`repo_hint` 缩小定位范围 |
 | **凭证中心** | SSH 私钥 / 账号密码 / HTTP Token；AES-256-GCM 加密；跨项目复用；使用记录可追溯 |
 | **大模型配置中心** | 9 个内置厂家 + 自定义；每个模型独立配置输入/输出上下文、温度、最大轮次、额外参数 |
 | **项目令牌** | `am_` 前缀随机令牌，只存 SHA256；支持过期时间与来源 IP CIDR 白名单 |
@@ -143,6 +143,7 @@ automedic/
 | `TestAuthEnvSSHKey` / `TestAuthEnvHTTPToken` | SSH 私钥与 HTTP Token 两种凭证注入形态、私钥 `0600` 与清理 |
 | `TestCommitUsesAuthorIdentity` | 提交者身份来自配置，而非本机 git config |
 | `TestListRemoteTreeAndShowFile` | 远端目录树浅取、过滤 `node_modules`、文本预览与路径穿越拒绝 |
+| `TestReviewThenFixCreatesSemiTask` | 假 ocr 产出 finding → 勾选后创建 `source=ocr` 的半自动任务 |
 
 ---
 
@@ -154,6 +155,7 @@ automedic/
 | [docs/接口文档.md](docs/接口文档.md) | 全部 REST 接口与 WebSocket 协议、请求/响应示例、状态机、端到端 curl 示例 |
 | [docs/dsh集成说明.md](docs/dsh集成说明.md) | dsh headless 调用形态、`--patch` 模型上下文注入、日志采集链路、结果解析约定 |
 | [docs/采集接入.md](docs/采集接入.md) | Sentry / Loki 字段映射、Grafana webhook 模板、可选 sidecar |
+| [docs/ocr审查.md](docs/ocr审查.md) | 仓库「审查」按钮、OCR CLI 边界、勾选后半自动修复 |
 
 ---
 

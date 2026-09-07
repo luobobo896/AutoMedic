@@ -116,6 +116,35 @@ func TestListRemoteTreeAndShowFile(t *testing.T) {
 	if _, err := m.ShowRemoteFile(context.Background(), url, "main", "../secret", env, 0); err == nil {
 		t.Fatal("路径穿越应失败")
 	}
+
+	dir, cleanup, err := m.PrepareReviewDir(context.Background(), url, "", "main", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if _, err := os.Stat(filepath.Join(dir, "internal", "svc.go")); err != nil {
+		t.Fatalf("审查工作区缺少工作树: %v", err)
+	}
+
+	run(src, "remote", "add", "origin", bare)
+	run(src, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(src, "notes.txt"), []byte("feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(src, "add", "-A")
+	run(src, "commit", "-m", "feat")
+	run(src, "push", "origin", "feature")
+	dir2, cleanup2, err := m.PrepareReviewDir(context.Background(), url, "main", "feature", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup2()
+	if _, err := os.Stat(filepath.Join(dir2, "notes.txt")); err != nil {
+		t.Fatalf("feature 工作树应含 notes.txt: %v", err)
+	}
+	if out, code, err := m.runOut(context.Background(), dir2, env, "rev-parse", "--verify", "main"); err != nil {
+		t.Fatalf("应存在本地基线分支 main (%d): %s", code, out)
+	}
 }
 
 func names(nodes []*TreeNode) []string {

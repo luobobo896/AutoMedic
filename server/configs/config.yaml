@@ -38,6 +38,12 @@ dsh:
     - "DSH_TELEMETRY_MODE=DISABLED"
     - "PATH=/Users/hanson/.local/share/fnm/node-versions/v25.9.0/installation/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
+ocr:
+  # Open Code Review CLI（npm i -g @alibaba-group/open-code-review），仓库「审查」按钮调用
+  bin: "ocr"
+  timeout_sec: 600
+  env: []
+
 git:
   workspace_root: "data/workspaces"
   depth: 1

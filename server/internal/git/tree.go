@@ -151,6 +151,54 @@ func (m *Manager) fetchTip(ctx context.Context, remoteURL, branch string, env ma
 	return dir, cleanup, nil
 }
 
+// PrepareReviewDir 为 OCR 准备带工作树的浅克隆（审查结束由调用方 cleanup）。
+// 默认只取 to 分支 tip；diff 审查会额外浅取 from，以便 ocr review --from/--to。
+func (m *Manager) PrepareReviewDir(ctx context.Context, remoteURL, fromRef, toRef string, env map[string]string) (string, func(), error) {
+	toRef = strings.TrimSpace(toRef)
+	if toRef == "" {
+		toRef = "HEAD"
+	}
+	fromRef = strings.TrimSpace(fromRef)
+	dir, err := os.MkdirTemp("", "am-ocr-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	if _, code, err := m.runOut(ctx, dir, env, "init", "--quiet"); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("git init: %w (code=%d)", err, code)
+	}
+	if _, code, err := m.runOut(ctx, dir, env, "remote", "add", "origin", remoteURL); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("git remote add: %w (code=%d)", err, code)
+	}
+	if out, code, err := m.runOut(ctx, dir, env, "fetch", "--depth=1", "--quiet", "origin", toRef); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("git fetch %s: %w (code=%d) %s", toRef, err, code, strings.TrimSpace(out))
+	}
+	if out, code, err := m.runOut(ctx, dir, env, "checkout", "-B", toRef, "--quiet", "FETCH_HEAD"); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("git checkout: %w (code=%d) %s", err, code, strings.TrimSpace(out))
+	}
+	if fromRef != "" && !sameGitRef(fromRef, toRef) {
+		if out, code, err := m.runOut(ctx, dir, env, "fetch", "--depth=1", "--quiet", "origin", fromRef); err != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("git fetch 基线 %s: %w (code=%d) %s", fromRef, err, code, strings.TrimSpace(out))
+		}
+		if out, code, err := m.runOut(ctx, dir, env, "branch", "-f", fromRef, "FETCH_HEAD"); err != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("git branch %s: %w (code=%d) %s", fromRef, err, code, strings.TrimSpace(out))
+		}
+	}
+	return dir, cleanup, nil
+}
+
+func sameGitRef(a, b string) bool {
+	na := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(a)), "origin/")
+	nb := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(b)), "origin/")
+	return na != "" && na == nb
+}
+
 func parseLsTree(out string) []lsEntry {
 	var list []lsEntry
 	for _, line := range strings.Split(out, "\n") {
@@ -239,6 +287,11 @@ func skipTreePath(p string) bool {
 		}
 	}
 	return false
+}
+
+// CleanRepoPath 规范化仓库内相对路径，拒绝穿越；非法时返回空串。
+func CleanRepoPath(p string) string {
+	return cleanRepoPath(p)
 }
 
 func cleanRepoPath(p string) string {

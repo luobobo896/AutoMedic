@@ -8,6 +8,7 @@ import (
 
 	"github.com/automedic/automedic/internal/crypto"
 	"github.com/automedic/automedic/internal/model"
+	"github.com/automedic/automedic/internal/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -315,6 +316,81 @@ func (h *Handlers) GetRepoFile(c *gin.Context) {
 	}
 	h.recordRepoUsage(r, "file", "ok", path)
 	OK(c, file)
+}
+
+type reviewStartIn struct {
+	Mode    string `json:"mode"`
+	From    string `json:"from"`
+	To      string `json:"to"`
+	Path    string `json:"path"`
+	ScanAll bool   `json:"scan_all"`
+}
+
+// StartRepoReview 手动触发 OCR 审查（异步）
+func (h *Handlers) StartRepoReview(c *gin.Context) {
+	r, ok := h.loadRepo(c)
+	if !ok {
+		return
+	}
+	if h.exec == nil {
+		Fail(c, 500, "执行器未就绪")
+		return
+	}
+	var in reviewStartIn
+	_ = c.ShouldBindJSON(&in)
+	job, err := h.exec.StartRepoReview(c.Request.Context(), r, service.ReviewStartInput{
+		Mode: in.Mode, From: in.From, To: in.To, Path: in.Path, ScanAll: in.ScanAll,
+	})
+	if err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	OK(c, service.ReviewJobAPI(job))
+}
+
+func (h *Handlers) GetReviewJob(c *gin.Context) {
+	id, ok := ParseID(c, "id")
+	if !ok {
+		BadRequest(c, "id 非法")
+		return
+	}
+	if h.exec == nil {
+		Fail(c, 500, "执行器未就绪")
+		return
+	}
+	job, err := h.exec.GetReviewJob(id)
+	if err != nil {
+		NotFound(c, "审查任务不存在")
+		return
+	}
+	OK(c, service.ReviewJobAPI(job))
+}
+
+type reviewFixIn struct {
+	Keys []string `json:"keys"`
+}
+
+func (h *Handlers) FixReviewJob(c *gin.Context) {
+	id, ok := ParseID(c, "id")
+	if !ok {
+		BadRequest(c, "id 非法")
+		return
+	}
+	if h.exec == nil {
+		Fail(c, 500, "执行器未就绪")
+		return
+	}
+	var in reviewFixIn
+	if err := c.ShouldBindJSON(&in); err != nil {
+		BadRequest(c, err)
+		return
+	}
+	ids, err := h.exec.FixReviewFindings(id, in.Keys)
+	if err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	OK(c, gin.H{"task_ids": ids, "mode": "semi"})
 }
 
 // ---------- 凭证 ----------

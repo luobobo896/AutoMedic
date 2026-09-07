@@ -92,6 +92,11 @@ func (h *Handlers) GetSettings(c *gin.Context) {
 			"instruction_file": h.cfg.DSH.InstructionFile,
 			"env":              h.cfg.DSH.Env,
 		},
+		"ocr": gin.H{
+			"bin":         h.cfg.OCR.Bin,
+			"timeout_sec": h.cfg.OCR.TimeoutSec,
+			"env":         h.cfg.OCR.Env,
+		},
 		"git": gin.H{
 			"workspace_root":  h.cfg.Git.WorkspaceRoot,
 			"depth":           h.cfg.Git.Depth,
@@ -119,6 +124,11 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 			UseShell        *bool    `json:"use_shell"`
 			Env             []string `json:"env"`
 		} `json:"dsh"`
+		OCR *struct {
+			Bin        *string  `json:"bin"`
+			TimeoutSec *int     `json:"timeout_sec"`
+			Env        []string `json:"env"`
+		} `json:"ocr"`
 		Git *struct {
 			WorkspaceRoot  *string `json:"workspace_root"`
 			Depth          *int    `json:"depth"`
@@ -149,6 +159,15 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 		}
 		if body.DSH.Env != nil {
 			h.cfg.DSH.Env = body.DSH.Env
+		}
+	}
+	if body.OCR != nil {
+		setStr(&h.cfg.OCR.Bin, body.OCR.Bin)
+		if body.OCR.TimeoutSec != nil {
+			h.cfg.OCR.TimeoutSec = *body.OCR.TimeoutSec
+		}
+		if body.OCR.Env != nil {
+			h.cfg.OCR.Env = body.OCR.Env
 		}
 	}
 	if body.Git != nil {

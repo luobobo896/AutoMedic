@@ -13,6 +13,7 @@ type Config struct {
 	DB       DBConfig       `yaml:"db"`
 	Security SecurityConfig `yaml:"security"`
 	DSH      DSHConfig      `yaml:"dsh"`
+	OCR      OCRConfig      `yaml:"ocr"`
 	Git      GitConfig      `yaml:"git"`
 	Log      LogConfig      `yaml:"log"`
 }
@@ -64,6 +65,15 @@ type DSHConfig struct {
 	OutputFormat string `yaml:"output_format"`
 	// 追加到 dsh 任务的兜底约束提示
 	SystemGuard string `yaml:"system_guard"`
+}
+
+type OCRConfig struct {
+	// ocr 可执行文件路径；为空则从 PATH 查找
+	Bin string `yaml:"bin"`
+	// 单次审查超时（秒），默认 600
+	TimeoutSec int `yaml:"timeout_sec"`
+	// 传给 ocr 进程的额外环境变量（KEY=VALUE），用于其独立 LLM 配置
+	Env []string `yaml:"env"`
 }
 
 type GitConfig struct {
@@ -129,6 +139,10 @@ func Default() *Config {
 			OutputFormat:    "text",
 			SystemGuard:     "",
 		},
+		OCR: OCRConfig{
+			Bin:        "ocr",
+			TimeoutSec: 600,
+		},
 		Git: GitConfig{
 			WorkspaceRoot:  "data/workspaces",
 			Depth:          1,
@@ -165,6 +179,12 @@ func Load(path string) (*Config, error) {
 	if cfg.DSH.Bin == "" {
 		cfg.DSH.Bin = "dsh"
 	}
+	if cfg.OCR.Bin == "" {
+		cfg.OCR.Bin = "ocr"
+	}
+	if cfg.OCR.TimeoutSec <= 0 {
+		cfg.OCR.TimeoutSec = 600
+	}
 	if cfg.Git.Bin == "" {
 		cfg.Git.Bin = "git"
 	}
@@ -191,6 +211,7 @@ func applyEnv(cfg *Config) {
 	set(&cfg.DSH.Bin, "DSH_BIN")
 	set(&cfg.DSH.Home, "DSH_HOME")
 	set(&cfg.DSH.PermissionMode, "DSH_PERMISSION_MODE")
+	set(&cfg.OCR.Bin, "OCR_BIN")
 	set(&cfg.Git.WorkspaceRoot, "GIT_WORKSPACE_ROOT")
 	set(&cfg.Git.Bin, "GIT_BIN")
 	set(&cfg.Log.Level, "LOG_LEVEL")

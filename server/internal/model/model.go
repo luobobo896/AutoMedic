@@ -94,6 +94,15 @@ const (
 	EventStatusDropped  EventStatus = "dropped"
 )
 
+type ReviewStatus string
+
+const (
+	ReviewStatusPending ReviewStatus = "pending"
+	ReviewStatusRunning ReviewStatus = "running"
+	ReviewStatusSuccess ReviewStatus = "success"
+	ReviewStatusFailed  ReviewStatus = "failed"
+)
+
 // ---------- 基础实体 ----------
 
 type BaseModel struct {
@@ -355,11 +364,34 @@ type Setting struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ReviewJob 仓库上手动触发的 OCR 审查（不改代码）
+type ReviewJob struct {
+	BaseModel
+	ProjectID  uint         `gorm:"index;not null" json:"project_id"`
+	RepoID     uint         `gorm:"index;not null" json:"repo_id"`
+	Status     ReviewStatus `gorm:"size:16;default:'pending';index" json:"status"`
+	Mode       string       `gorm:"size:16" json:"mode"` // review | scan
+	FromRef    string       `gorm:"size:256" json:"from_ref"`
+	ToRef      string       `gorm:"size:256" json:"to_ref"`
+	Path       string       `gorm:"size:512" json:"path"`
+	ScanAll    bool         `json:"scan_all"`
+	Cmd        string       `gorm:"type:text" json:"cmd"`
+	ErrorMsg   string       `gorm:"type:text" json:"error_msg"`
+	Findings   JSON         `gorm:"type:text" json:"-"`
+	FindingN   int          `json:"finding_n"`
+	DurationMS int64        `json:"duration_ms"`
+	StartedAt  *time.Time   `json:"started_at"`
+	FinishedAt *time.Time   `json:"finished_at"`
+
+	Repo    *Repository `gorm:"foreignKey:RepoID" json:"repo,omitempty"`
+	Project *Project    `gorm:"foreignKey:ProjectID" json:"project,omitempty"`
+}
+
 func All() []any {
 	return []any{
 		&Project{}, &Repository{}, &Credential{}, &CredentialUsage{},
 		&Provider{}, &LLMModel{}, &IngestToken{}, &Event{}, &Rule{},
-		&Task{}, &TaskLog{}, &Setting{},
+		&Task{}, &TaskLog{}, &Setting{}, &ReviewJob{},
 	}
 }
 

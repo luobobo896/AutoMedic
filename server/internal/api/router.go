@@ -69,6 +69,9 @@ func NewRouter(d *Deps) *gin.Engine {
 		api.POST("/repos/:id/test", h.TestRepo)
 		api.GET("/repos/:id/tree", h.GetRepoTree)
 		api.GET("/repos/:id/file", h.GetRepoFile)
+		api.POST("/repos/:id/review", h.StartRepoReview)
+		api.GET("/reviews/:id", h.GetReviewJob)
+		api.POST("/reviews/:id/fix", h.FixReviewJob)
 
 		// 凭证
 		api.GET("/credentials", h.ListCredentials)

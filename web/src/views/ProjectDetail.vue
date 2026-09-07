@@ -28,9 +28,10 @@
             <el-table-column label="自动推送" width="90">
               <template #default="{ row }">{{ row.auto_push ? '是' : '否' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="220">
+            <el-table-column label="操作" width="280">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openTree(row)">目录树</el-button>
+                <el-button link type="primary" @click="openReview(row)">审查</el-button>
                 <el-button link type="primary" @click="testConn(row)">测试</el-button>
                 <el-button link type="danger" @click="removeRepo(row)">移除</el-button>
               </template>
@@ -215,6 +216,7 @@
     </el-dialog>
 
     <RepoTreeDrawer v-model="treeDrawer" :repo="treeRepo" />
+    <RepoReviewDrawer v-model="reviewDrawer" :repo="reviewRepo" />
   </div>
 </template>
 
@@ -229,6 +231,7 @@ import {
 import { formatTime } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import RepoTreeDrawer from './RepoTreeDrawer.vue'
+import RepoReviewDrawer from './RepoReviewDrawer.vue'
 
 const route = useRoute()
 const id = ref(route.params.id)
@@ -241,6 +244,8 @@ const credentials = ref([])
 const repoDialog = ref(false)
 const treeDrawer = ref(false)
 const treeRepo = ref(null)
+const reviewDrawer = ref(false)
+const reviewRepo = ref(null)
 const ruleDialog = ref(false)
 const repoForm = ref({ auto_push: true, branch: 'main' })
 const ruleForm = ref({ enabled: true, action: 'fix', priority: 0, min_count: 1, window_sec: 300, cooldown_sec: 600, max_retries: 2, fix_mode: '' })
@@ -267,6 +272,10 @@ async function saveRepo() {
 function openTree(row) {
   treeRepo.value = row
   treeDrawer.value = true
+}
+function openReview(row) {
+  reviewRepo.value = row
+  reviewDrawer.value = true
 }
 
 async function testConn(row) {

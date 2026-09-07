@@ -41,6 +41,11 @@ dsh:
     - "DSH_TELEMETRY_MODE=DISABLED"
     - "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
+ocr:
+  bin: "ocr"
+  timeout_sec: 600
+  env: []
+
 git:
   workspace_root: "/app/data/workspaces"
   depth: 1

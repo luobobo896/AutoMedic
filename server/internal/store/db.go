@@ -84,6 +84,7 @@ func AutoMigrate(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_task_logs_task_seq ON task_logs(task_id, seq)",
 		"CREATE INDEX IF NOT EXISTS idx_events_project_occurred ON events(project_id, occurred_at)",
 		"CREATE INDEX IF NOT EXISTS idx_events_fp_occurred ON events(fingerprint, occurred_at)",
+		"CREATE INDEX IF NOT EXISTS idx_review_jobs_repo_created ON review_jobs(repo_id, created_at)",
 	}
 	for _, sql := range extra {
 		if err := db.Exec(sql).Error; err != nil {

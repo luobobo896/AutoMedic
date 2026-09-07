@@ -10,7 +10,7 @@
 
 | 约束 | 实现方式 |
 | --- | --- |
-| 只调用官方 CLI | 全程 `exec` 外部 `dsh` 进程，不 import 任何 dsh 内部包 |
+| 只调用官方 CLI | 全程 `exec` 外部 `dsh` 进程，不 import 任何 dsh 内部包。仓库「审查」另走官方 `ocr` CLI，不替代 dsh |
 | 只用 headless profile | 命令模板固定带 `--profile headless` |
 | 隔离工作区 | 每次修复在 `git.workspace_root/<project>/<id>-<repo>` 独立目录执行，`dsh` 进程 `cwd` 即该目录（dsh 的 sandbox workspaceRoot 取进程 cwd） |
 | 不内嵌 Web UI | 平台只读取 dsh 的 stdout/stderr，不启动、不代理 dsh 的交互式界面 |
