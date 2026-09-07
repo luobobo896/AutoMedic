@@ -66,6 +66,9 @@
         <el-form-item label="自动推送"><el-switch v-model="git.auto_push" /></el-form-item>
         <el-form-item label="发布钩子">
           <el-input v-model="git.release_hook" placeholder="推送成功后在仓库目录执行的命令，如 ./deploy.sh" />
+          <div class="am-text-dim" style="font-size:12px;margin-top:4px">
+            对应配置项 `git.release_hook`。推送成功后在隔离工作区执行；项目详情里填写的发布钩子会覆盖此项。留空则不执行。
+          </div>
         </el-form-item>
         <el-form-item label="工作区保留天数">
           <el-input-number v-model="git.keep_days" :min="0" /> 天

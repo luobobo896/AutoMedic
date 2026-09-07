@@ -63,7 +63,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="发布钩子">
-          <el-input v-model="form.release_hook" placeholder="推送成功后执行，如 make deploy（留空不执行）" />
+          <el-input v-model="form.release_hook" placeholder="推送成功后在仓库目录执行，对应 git.release_hook；留空用系统设置" />
         </el-form-item>
         <el-form-item label="业务上下文">
           <el-input v-model="form.context" type="textarea" :rows="4"

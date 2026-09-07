@@ -225,11 +225,13 @@ Enqueue(taskID)
    ├─ verify      git diff 判定改动 → 生成 patch / diff_stat
    │
    ├─ 半自动(semi) → 状态 confirming，等待人工在 Web 上「确认」或「驳回」
-   │       ├─ 确认 → 重建工作区 + git apply 补丁 → commit → push → release_hook
+   │       ├─ 确认 → 重建工作区 + git apply 补丁 → commit → push → 发布钩子
    │       └─ 驳回 → 状态 rejected，工作区回退
    │
-   └─ 全自动(auto) → 直接 commit → push（受 git.auto_push 控制）→ release_hook
+   └─ 全自动(auto) → 直接 commit → push（受 git.auto_push 控制）→ 发布钩子
 ```
+
+「发布」= 可配置命令 `git.release_hook`（项目 `release_hook` 非空时覆盖），在 **push 成功之后**、隔离工作区目录内由 `/bin/sh -c` 执行。不是独立发布流水线。
 
 崩溃恢复：服务启动时 scanner 会把残留的 `running` 任务重新置为 `pending` 并重新入队。
 

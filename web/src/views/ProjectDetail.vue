@@ -28,8 +28,9 @@
             <el-table-column label="自动推送" width="90">
               <template #default="{ row }">{{ row.auto_push ? '是' : '否' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="160">
+            <el-table-column label="操作" width="220">
               <template #default="{ row }">
+                <el-button link type="primary" @click="openTree(row)">目录树</el-button>
                 <el-button link type="primary" @click="testConn(row)">测试</el-button>
                 <el-button link type="danger" @click="removeRepo(row)">移除</el-button>
               </template>
@@ -118,7 +119,10 @@
               </el-select>
             </el-form-item>
             <el-form-item label="发布钩子">
-              <el-input v-model="form.release_hook" placeholder="推送成功后在仓库目录执行的命令" />
+              <el-input v-model="form.release_hook" placeholder="推送成功后在仓库目录执行的命令，对应 git.release_hook；留空则用系统设置" />
+              <div class="am-text-dim" style="font-size:12px;margin-top:4px">
+                「发布」不是独立流水线，而是推送成功后执行的可配置命令（项目级覆盖系统设置 `git.release_hook`）。
+              </div>
             </el-form-item>
             <el-form-item label="业务上下文">
               <el-input v-model="form.context" type="textarea" :rows="6"
@@ -209,6 +213,8 @@
         <el-button type="primary" @click="saveRule">保存</el-button>
       </template>
     </el-dialog>
+
+    <RepoTreeDrawer v-model="treeDrawer" :repo="treeRepo" />
   </div>
 </template>
 
@@ -222,6 +228,7 @@ import {
 } from '@/api'
 import { formatTime } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import RepoTreeDrawer from './RepoTreeDrawer.vue'
 
 const route = useRoute()
 const id = ref(route.params.id)
@@ -232,6 +239,8 @@ const models = ref([])
 const credentials = ref([])
 
 const repoDialog = ref(false)
+const treeDrawer = ref(false)
+const treeRepo = ref(null)
 const ruleDialog = ref(false)
 const repoForm = ref({ auto_push: true, branch: 'main' })
 const ruleForm = ref({ enabled: true, action: 'fix', priority: 0, min_count: 1, window_sec: 300, cooldown_sec: 600, max_retries: 2, fix_mode: '' })
@@ -253,6 +262,11 @@ async function saveRepo() {
   ElMessage.success('已关联')
   repoDialog.value = false
   load()
+}
+
+function openTree(row) {
+  treeRepo.value = row
+  treeDrawer.value = true
 }
 
 async function testConn(row) {

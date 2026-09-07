@@ -63,6 +63,8 @@
 
         响应：{ "code":0, "data": { "action": "fix|ignore|dropped", "task_ids": [1], "reason": "..." } }
         批量投递：POST /api/v1/ingest/events/batch   { "events": [ ... ] }
+
+        Sentry / Loki / Promtail 不能原样转发，需映射字段。完整示例与可选 sidecar 见仓库 docs/采集接入.md。
       </div>
     </div>
 

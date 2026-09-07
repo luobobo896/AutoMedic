@@ -249,6 +249,74 @@ func (h *Handlers) TestRepo(c *gin.Context) {
 	OK(c, gin.H{"ok": true, "cost_ms": time.Since(start).Milliseconds()})
 }
 
+func (h *Handlers) loadRepo(c *gin.Context) (*model.Repository, bool) {
+	id, ok := ParseID(c, "id")
+	if !ok {
+		BadRequest(c, "id 非法")
+		return nil, false
+	}
+	var r model.Repository
+	if err := h.db.Preload("Credential").Preload("Project").First(&r, id).Error; err != nil {
+		NotFound(c, "仓库不存在")
+		return nil, false
+	}
+	return &r, true
+}
+
+func (h *Handlers) recordRepoUsage(r *model.Repository, action, result, message string) {
+	usage := model.CredentialUsage{RefType: "repo", RefID: r.ID, Action: action, Result: result, Message: message, CreatedAt: time.Now()}
+	if r.CredentialID != nil {
+		usage.CredentialID = *r.CredentialID
+	}
+	h.db.Create(&usage)
+}
+
+// GetRepoTree 浏览仓库目录树（浅取远端 tip）
+func (h *Handlers) GetRepoTree(c *gin.Context) {
+	r, ok := h.loadRepo(c)
+	if !ok {
+		return
+	}
+	if h.exec == nil {
+		Fail(c, 500, "执行器未就绪")
+		return
+	}
+	start := time.Now()
+	tree, err := h.exec.ListRepoTree(c.Request.Context(), r)
+	if err != nil {
+		h.recordRepoUsage(r, "tree", "fail", err.Error())
+		Fail(c, 500, "读取目录树失败："+err.Error())
+		return
+	}
+	h.recordRepoUsage(r, "tree", "ok", fmt.Sprintf("耗时 %dms", time.Since(start).Milliseconds()))
+	OK(c, tree)
+}
+
+// GetRepoFile 预览仓库文件
+func (h *Handlers) GetRepoFile(c *gin.Context) {
+	r, ok := h.loadRepo(c)
+	if !ok {
+		return
+	}
+	path := c.Query("path")
+	if strings.TrimSpace(path) == "" {
+		BadRequest(c, "缺少 path")
+		return
+	}
+	if h.exec == nil {
+		Fail(c, 500, "执行器未就绪")
+		return
+	}
+	file, err := h.exec.ShowRepoFile(c.Request.Context(), r, path)
+	if err != nil {
+		h.recordRepoUsage(r, "file", "fail", err.Error())
+		Fail(c, 500, "读取文件失败："+err.Error())
+		return
+	}
+	h.recordRepoUsage(r, "file", "ok", path)
+	OK(c, file)
+}
+
 // ---------- 凭证 ----------
 
 type credIn struct {

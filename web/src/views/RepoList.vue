@@ -28,8 +28,9 @@
         <el-table-column label="自动推送" width="90">
           <template #default="{ row }">{{ row.auto_push ? '是' : '否' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="openTree(row)">目录树</el-button>
             <el-button link type="primary" @click="testConn(row)">测试</el-button>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" @click="remove(row)">删除</el-button>
@@ -68,6 +69,8 @@
         <el-button type="primary" @click="submit">保存</el-button>
       </template>
     </el-dialog>
+
+    <RepoTreeDrawer v-model="treeDrawer" :repo="treeRepo" />
   </div>
 </template>
 
@@ -75,6 +78,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { listRepos, createRepo, updateRepo, deleteRepo, testRepo, listProjects, listCredentials, listModels } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import RepoTreeDrawer from './RepoTreeDrawer.vue'
 
 const list = ref([])
 const projects = ref([])
@@ -82,6 +86,8 @@ const credentials = ref([])
 const models = ref([])
 const loading = ref(false)
 const dialog = ref(false)
+const treeDrawer = ref(false)
+const treeRepo = ref(null)
 const query = reactive({ project_id: '' })
 const form = ref({ auto_push: true, enabled: true, branch: 'main' })
 
@@ -109,6 +115,11 @@ async function submit() {
   ElMessage.success('已保存')
   dialog.value = false
   load()
+}
+
+function openTree(row) {
+  treeRepo.value = row
+  treeDrawer.value = true
 }
 
 async function testConn(row) {

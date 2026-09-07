@@ -56,6 +56,8 @@ export const createRepo = (data) => http.post('/v1/repos', data)
 export const updateRepo = (id, data) => http.put(`/v1/repos/${id}`, data)
 export const deleteRepo = (id) => http.delete(`/v1/repos/${id}`)
 export const testRepo = (id) => http.post(`/v1/repos/${id}/test`)
+export const repoTree = (id) => http.get(`/v1/repos/${id}/tree`)
+export const repoFile = (id, path) => http.get(`/v1/repos/${id}/file`, { params: { path } })
 
 // ---------- 凭证 ----------
 export const listCredentials = () => http.get('/v1/credentials')

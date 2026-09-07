@@ -67,6 +67,8 @@ func NewRouter(d *Deps) *gin.Engine {
 		api.PUT("/repos/:id", h.UpdateRepo)
 		api.DELETE("/repos/:id", h.DeleteRepo)
 		api.POST("/repos/:id/test", h.TestRepo)
+		api.GET("/repos/:id/tree", h.GetRepoTree)
+		api.GET("/repos/:id/file", h.GetRepoFile)
 
 		// 凭证
 		api.GET("/credentials", h.ListCredentials)

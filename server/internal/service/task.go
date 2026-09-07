@@ -627,6 +627,36 @@ func (e *Executor) TestRepo(ctx context.Context, repo *model.Repository) error {
 	return nil
 }
 
+// ListRepoTree 浏览远端仓库目录结构（浅取 tip，不落工作区）
+func (e *Executor) ListRepoTree(ctx context.Context, repo *model.Repository) (*git.TreeResult, error) {
+	auth := e.resolveAuth(repo, func(string, string) {})
+	url, env, cleanup, err := e.gitm.PublicAuthURL(repo.URL, auth)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil {
+		return nil, err
+	}
+	ctx2, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	return e.gitm.ListRemoteTree(ctx2, url, repo.Branch, env, 0)
+}
+
+// ShowRepoFile 预览远端仓库指定文件
+func (e *Executor) ShowRepoFile(ctx context.Context, repo *model.Repository, path string) (*git.FileResult, error) {
+	auth := e.resolveAuth(repo, func(string, string) {})
+	url, env, cleanup, err := e.gitm.PublicAuthURL(repo.URL, auth)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil {
+		return nil, err
+	}
+	ctx2, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	return e.gitm.ShowRemoteFile(ctx2, url, repo.Branch, path, env, 0)
+}
+
 func providerKey(p *model.Provider) string {
 	if p == nil {
 		return ""
