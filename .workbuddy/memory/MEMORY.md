@@ -22,6 +22,21 @@
 - 前端 `web/node_modules` 是到 `/tmp/am-build/node_modules` 的软链（broker 沙箱拒绝在项目目录 install）。`/tmp` 清空后需重新安装。
 - 构建前端：`node node_modules/vite/bin/vite.js build`。
 - 本机 dsh 由 fnm 的 node v25.9.0 全局安装，路径 `~/.local/share/fnm/node-versions/v25.9.0/installation/bin/dsh`，需在 `dsh.env` 的 PATH 中。
+- **dsh 官方 npm 包名：`@deepseek-ai/dsh`**（scope 带 `-ai`，latest 0.1.2-rc.1）。`@deepseek/dsh` / `dsh` 均非官方包，禁止使用。
+- 本机 docker（OrbStack）可用；mysql client `/opt/homebrew/opt/mysql-client/bin/mysql`，无 mysqld（验证 MySQL 用 docker 起容器）。
+
+## 测试
+- `./scripts/test.sh` = `go vet ./...` + `go test ./...`，参数透传给 go test。
+- 端到端测试 `server/internal/service/e2e_fix_test.go` 用**假 dsh**（shell 脚本冒名 `dsh --profile headless`）
+  替换真实 Harness，不调用任何大模型即可验证 提交/推送/发布钩子/半自动确认/忽略/工作区复用。
+- `server/internal/git/workspace_env_test.go` 守护「git 子进程必须拿到 env」这条回归线。
+
+## 已验证（2026-09-07）
+- MySQL 8.0.46 迁移脚本 + 服务以 mysql 驱动启动：通过。
+- Docker 镜像实际 build + 容器启动（healthz / SPA 200）：通过。
+- 核心链路端到端（含 commit / push / release_hook / confirm / reject / ignored）：通过。
+- 已验证（2026-09-07）：真实 dsh 大模型「改代码」分支。隔离库含 `service.go` 空指针缺陷；`deepseek-v4-flash` 补判空 + `service_test.go`，全自动 commit/push 到 `automedic/fix-*`；指令文件未入库。`GO111MODULE=off go test` 通过。
+- 源码已 push：`origin/main` = `c99776fe708ad48c7dd60998e69e6a72156abacd`。
 
 ## 主要文档
 - `docs/部署文档.md` — Docker / 裸机 / MySQL 部署、配置全解、排障
