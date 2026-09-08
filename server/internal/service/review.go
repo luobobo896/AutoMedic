@@ -48,6 +48,9 @@ func (e *Executor) StartRepoReview(ctx context.Context, repo *model.Repository, 
 	if mode == "review" && from == "" {
 		return nil, errors.New("diff 审查必须指定基线 from（例如 main）")
 	}
+	if mode == "review" && git.SameRef(from, to) {
+		return nil, errors.New("基线 from 与当前分支相同，没有 diff 可审。预埋在主干上的问题请改用「指定路径」扫描")
+	}
 	if mode == "scan" && !in.ScanAll && path == "" {
 		return nil, errors.New("路径扫描必须指定 path；整仓扫描需要 scan_all=true")
 	}

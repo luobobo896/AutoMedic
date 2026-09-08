@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,6 +114,22 @@ func TestStartRepoReviewRequiresFrom(t *testing.T) {
 	_, err = e.ex.StartRepoReview(context.Background(), &repo, ReviewStartInput{Mode: "scan"})
 	if err == nil {
 		t.Fatal("scan 缺 path 应失败")
+	}
+}
+
+func TestStartRepoReviewRejectsSameFromTo(t *testing.T) {
+	e := newE2E(t, model.FixModeSemi)
+	var repo model.Repository
+	if err := e.db.First(&repo).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo.Branch = "main"
+	_, err := e.ex.StartRepoReview(context.Background(), &repo, ReviewStartInput{Mode: "review", From: "main"})
+	if err == nil {
+		t.Fatal("from 与当前分支相同应失败")
+	}
+	if !strings.Contains(err.Error(), "没有 diff") {
+		t.Fatalf("错误应说明空 diff: %v", err)
 	}
 }
 

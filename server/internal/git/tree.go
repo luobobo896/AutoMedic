@@ -215,6 +215,11 @@ func (m *Manager) fetchReviewRef(ctx context.Context, dir string, env map[string
 	return nil
 }
 
+// SameRef 判断两个 git ref 是否同一分支（忽略 origin/ 前缀与大小写）。
+func SameRef(a, b string) bool {
+	return sameGitRef(a, b)
+}
+
 func sameGitRef(a, b string) bool {
 	na := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(a)), "origin/")
 	nb := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(b)), "origin/")

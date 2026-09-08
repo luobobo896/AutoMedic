@@ -4,15 +4,15 @@
       <el-form :model="form" label-width="88px" size="small">
         <el-form-item label="范围">
           <el-radio-group v-model="form.mode">
+            <el-radio value="scan">扫描已合入代码</el-radio>
             <el-radio value="review">相对基线的 diff</el-radio>
-            <el-radio value="scan">指定路径</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="form.mode === 'review'" label="基线 from">
           <el-select v-model="form.from" filterable allow-create default-first-option style="width:220px">
             <el-option v-for="b in fromOptions" :key="b" :label="b" :value="b" />
           </el-select>
-          <span class="am-text-dim" style="margin-left:8px">对比当前分支 {{ repo?.branch || 'HEAD' }}</span>
+          <span class="am-text-dim" style="margin-left:8px">对比当前分支 {{ repo?.branch || 'HEAD' }}（基线不能与当前分支相同）</span>
         </el-form-item>
         <el-form-item v-if="form.mode === 'scan'" label="路径">
           <el-select v-model="form.path" filterable allow-create default-first-option style="width:280px" placeholder="选择或输入路径">
@@ -28,9 +28,10 @@
         </el-form-item>
       </el-form>
       <div class="am-text-dim" style="font-size:12px;margin-bottom:8px">
-        调用官方 Open Code Review CLI（`ocr`），不改代码。模型与密钥来自「大模型配置中心」；仓库/项目可单独指定审查模型，留空则与修复同一套。有问题请勾选后用平台半自动修复。
+        调用官方 Open Code Review CLI（`ocr`），不改代码。已合入主干的预埋问题请用「扫描已合入代码」；「相对基线的 diff」只审未合入当前分支的改动。模型与密钥来自「大模型配置中心」。
       </div>
       <el-alert v-if="job?.status === 'failed'" type="error" :closable="false" :title="job.error_msg || '审查失败'" style="margin-bottom:12px" />
+      <el-alert v-else-if="job?.status === 'success' && !findings.length" type="info" :closable="false" title="审查完成，但没有意见。若代码里已有预埋问题，请改用「扫描已合入代码」，不要用与当前分支相同的基线做 diff。" style="margin-bottom:12px" />
       <el-table :data="findings" size="small" v-loading="running" @selection-change="onSel">
         <el-table-column type="selection" width="42" />
         <el-table-column prop="severity" label="级别" width="90">
@@ -74,7 +75,7 @@ const visible = computed({
 })
 const dict = useDicts()
 const title = computed(() => (props.repo ? `审查 · ${props.repo.name}` : '审查'))
-const form = ref({ mode: 'review', from: 'main', path: '' })
+const form = ref({ mode: 'scan', from: 'main', path: '' })
 const fromOptions = computed(() => {
   const extra = [props.repo?.branch, 'HEAD'].filter(Boolean)
   return [...new Set([...dict.values('git_branch'), ...extra])]
@@ -107,10 +108,11 @@ watch(() => [visible.value, props.repo?.id], async () => {
   selected.value = []
   createdIds.value = []
   if (visible.value && props.repo) {
+    const paths = splitCSV(props.repo.code_paths)
     form.value = {
-      mode: 'review',
-      from: props.repo.branch === 'master' ? 'master' : 'main',
-      path: splitCSV(props.repo.code_paths)[0] || 'internal/'
+      mode: 'scan',
+      from: defaultFrom(props.repo.branch),
+      path: paths[0] || (String(props.repo.language).toLowerCase() === 'java' ? 'src/' : 'internal/')
     }
   }
 })
@@ -128,8 +130,23 @@ function onSel(rows) {
   selected.value = rows || []
 }
 
+function defaultFrom(branch) {
+  const b = String(branch || '').trim()
+  if (b && b !== 'main') return 'main'
+  if (b === 'main') return 'master'
+  return 'main'
+}
+
 async function start() {
   if (!props.repo?.id) return
+  if (form.value.mode === 'review') {
+    const from = String(form.value.from || '').trim()
+    const to = String(props.repo.branch || 'main').trim()
+    if (from.toLowerCase() === to.toLowerCase()) {
+      ElMessage.error('基线不能与当前分支相同，否则没有 diff。预埋在主干上的问题请改用「扫描已合入代码」。')
+      return
+    }
+  }
   starting.value = true
   createdIds.value = []
   selected.value = []

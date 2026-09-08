@@ -51,6 +51,15 @@ func TestCleanRepoPathRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestSameRef(t *testing.T) {
+	if !SameRef("main", "main") || !SameRef("origin/main", "MAIN") {
+		t.Fatal("相同分支应判定为同一 ref")
+	}
+	if SameRef("main", "master") || SameRef("", "") {
+		t.Fatal("不同分支或空值不应判定为同一 ref")
+	}
+}
+
 func TestListRemoteTreeAndShowFile(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "src")
