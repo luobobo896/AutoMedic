@@ -54,7 +54,7 @@
         </div>
       </el-header>
 
-      <el-main class="main">
+      <el-main class="main" :class="{ 'main-fill': fillMain }">
         <router-view />
       </el-main>
     </el-container>
@@ -98,6 +98,7 @@ const pwd = ref({ old_password: '', new_password: '' })
 const menus = computed(() => visibleMenus())
 const displayName = computed(() => state.user?.display_name || state.user?.username || '未登录')
 const roleNames = computed(() => (state.user?.roles || []).join('、'))
+const fillMain = computed(() => route.path.startsWith('/tasks/') && route.path !== '/tasks')
 
 const activePath = computed(() => {
   const p = route.path
@@ -140,13 +141,36 @@ async function submitPassword() {
 </script>
 
 <style scoped>
-.layout { height: 100vh; }
+.layout { height: 100vh; overflow: hidden; }
+.layout > .el-container {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 .aside { background: #12141a; border-right: 1px solid var(--am-border); transition: width .2s; overflow: hidden; }
 .logo { height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 18px; color: var(--am-text); font-weight: 600; font-size: 15px; }
-.header { display: flex; align-items: center; justify-content: space-between; background: var(--am-bg-elevated); border-bottom: 1px solid var(--am-border); }
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  background: var(--am-bg-elevated);
+  border-bottom: 1px solid var(--am-border);
+}
 .header-left { display: flex; align-items: center; gap: 12px; }
 .header-right { display: flex; align-items: center; gap: 12px; }
 .main { background: var(--am-bg); padding: 0; overflow-x: hidden; overflow-y: auto; }
+.main.main-fill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.main.main-fill :deep(.am-task-detail) {
+  flex: 1;
+  min-height: 0;
+}
 .dsh-tag { border-radius: 999px; }
 
 .user-chip {

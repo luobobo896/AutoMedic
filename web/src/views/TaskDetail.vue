@@ -16,61 +16,28 @@
       <el-button :icon="'Refresh'" @click="loadAll" />
     </div>
 
-    <el-row :gutter="16" class="task-grid">
-      <el-col :span="16" class="task-col-main">
-        <div class="am-card">
-          <div class="am-toolbar">
-            <span style="font-weight:600">修复过程终端</span>
+    <div class="task-body">
+      <section class="task-process" aria-label="修复过程">
+        <div class="am-card term-card">
+          <div class="am-toolbar term-toolbar">
+            <span class="term-title">修复过程</span>
             <el-tag v-if="wsConnected" size="small" type="success" effect="dark">实时连接</el-tag>
             <el-tag v-else size="small" type="info" effect="plain">离线（轮询）</el-tag>
+            <span class="am-text-dim term-meta">{{ logs.length }} 行</span>
             <div class="am-flex-1" />
-            <el-checkbox v-model="autoScroll" size="small">自动滚动</el-checkbox>
+            <el-checkbox v-model="autoScroll" size="small">跟随输出</el-checkbox>
             <el-button size="small" @click="copyLogs">复制日志</el-button>
           </div>
-          <div ref="termRef" class="am-terminal">
+          <div ref="termRef" class="am-terminal" @scroll="onTermScroll">
             <div v-for="(l, i) in logs" :key="l.seq || i" :class="'line-' + l.stream">
               <span class="am-text-dim">[{{ l.seq }}]</span> {{ stripANSI(l.content) }}
             </div>
-            <div v-if="!logs.length" class="am-text-dim">暂无输出</div>
+            <div v-if="!logs.length" class="am-text-dim">等待 dsh 输出…</div>
           </div>
         </div>
+      </section>
 
-        <div class="am-card">
-          <div class="am-toolbar"><span style="font-weight:600">修复结果摘要</span></div>
-          <el-descriptions :column="2" border size="small">
-            <el-descriptions-item label="根因分析" :span="2">
-              {{ task.diagnosis || '-' }}
-            </el-descriptions-item>
-            <el-descriptions-item label="修复摘要" :span="2">
-              <div style="white-space:pre-wrap">{{ task.summary || '-' }}</div>
-            </el-descriptions-item>
-            <el-descriptions-item label="变更文件" :span="2">
-              <template v-if="changedFiles.length">
-                <el-tag v-for="f in changedFiles" :key="f" size="small" style="margin:2px 4px 2px 0">{{ f }}</el-tag>
-              </template>
-              <span v-else class="am-text-dim">-</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="变更统计">
-              <pre style="margin:0;white-space:pre-wrap">{{ task.diff_stat || '-' }}</pre>
-            </el-descriptions-item>
-            <el-descriptions-item label="错误信息">
-              <span style="color:#f7768e">{{ task.error_msg || '-' }}</span>
-            </el-descriptions-item>
-          </el-descriptions>
-
-          <div class="am-toolbar" style="margin-top:12px">
-            <span style="font-weight:600">补丁 Diff</span>
-            <div class="am-flex-1" />
-            <el-button size="small" @click="copyPatch" :disabled="!patchText">复制补丁</el-button>
-          </div>
-          <div class="am-diff">
-            <div v-for="(l, i) in patchLines" :key="i" :class="diffClass(l)">{{ l }}</div>
-            <div v-if="!patchLines.length" class="am-text-dim">暂无补丁</div>
-          </div>
-        </div>
-      </el-col>
-
-      <el-col :span="8" class="task-col-side">
+      <aside class="task-side" aria-label="任务信息与结果">
         <div class="am-card">
           <div class="am-toolbar"><span style="font-weight:600">任务信息</span></div>
           <el-descriptions :column="1" border size="small">
@@ -110,6 +77,37 @@
         </div>
 
         <div class="am-card">
+          <div class="am-toolbar"><span style="font-weight:600">修复结果</span></div>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="根因分析">{{ task.diagnosis || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="修复摘要">
+              <div style="white-space:pre-wrap">{{ task.summary || '-' }}</div>
+            </el-descriptions-item>
+            <el-descriptions-item label="变更文件">
+              <template v-if="changedFiles.length">
+                <el-tag v-for="f in changedFiles" :key="f" size="small" style="margin:2px 4px 2px 0">{{ f }}</el-tag>
+              </template>
+              <span v-else class="am-text-dim">-</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="变更统计">
+              <pre style="margin:0;white-space:pre-wrap">{{ task.diff_stat || '-' }}</pre>
+            </el-descriptions-item>
+            <el-descriptions-item label="错误信息">
+              <span style="color:#f7768e">{{ task.error_msg || '-' }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+          <div class="am-toolbar" style="margin-top:12px">
+            <span style="font-weight:600">补丁 Diff</span>
+            <div class="am-flex-1" />
+            <el-button size="small" @click="copyPatch" :disabled="!patchText">复制补丁</el-button>
+          </div>
+          <div class="am-diff">
+            <div v-for="(l, i) in patchLines" :key="i" :class="diffClass(l)">{{ l }}</div>
+            <div v-if="!patchLines.length" class="am-text-dim">暂无补丁</div>
+          </div>
+        </div>
+
+        <div class="am-card">
           <div class="am-toolbar"><span style="font-weight:600">触发事件</span></div>
           <template v-if="task.event">
             <div style="margin-bottom:6px">
@@ -131,8 +129,8 @@
             退出码：{{ task.dsh_exit_code }}
           </div>
         </div>
-      </el-col>
-    </el-row>
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -275,6 +273,13 @@ function startPolling() {
 
 function stopPolling() { if (timer) { clearInterval(timer); timer = null } }
 
+function onTermScroll() {
+  const el = termRef.value
+  if (!el) return
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+  if (autoScroll.value !== nearBottom) autoScroll.value = nearBottom
+}
+
 function scrollBottom() {
   if (!autoScroll.value) return
   nextTick(() => {
@@ -342,21 +347,64 @@ onBeforeUnmount(() => { stopPolling(); stopWS() })
 
 <style scoped>
 .am-task-detail {
+  height: 100%;
+  min-height: 0;
   max-width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+.am-task-detail > .am-toolbar {
+  flex: none;
+}
+.task-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  gap: 16px;
+  overflow: hidden;
+}
+.task-process {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.term-card {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.term-toolbar {
+  flex: none;
+  margin-bottom: 10px;
+}
+.term-title {
+  font-weight: 600;
+}
+.term-meta {
+  font-size: 12px;
+}
+.term-card :deep(.am-terminal) {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.task-side {
+  flex: 0 0 360px;
+  width: 360px;
+  min-width: 0;
+  min-height: 0;
   overflow-x: hidden;
-}
-.task-grid {
-  width: 100%;
-  max-width: 100%;
-}
-.task-grid :deep(.el-col) {
-  min-width: 0;
-  flex-shrink: 1;
-}
-.task-col-main,
-.task-col-side {
-  min-width: 0;
-  max-width: 100%;
+  overflow-y: auto;
 }
 .am-card {
   max-width: 100%;
@@ -369,9 +417,21 @@ onBeforeUnmount(() => { stopPolling(); stopWS() })
   word-break: break-word;
 }
 @media (max-width: 1024px) {
-  .task-grid :deep(.el-col) {
-    max-width: 100%;
-    flex: 0 0 100%;
+  .am-task-detail {
+    height: auto;
+    overflow: auto;
+  }
+  .task-body {
+    flex-direction: column;
+    overflow: visible;
+  }
+  .task-process {
+    min-height: 420px;
+  }
+  .task-side {
+    flex: none;
+    width: 100%;
+    overflow: visible;
   }
 }
 </style>
