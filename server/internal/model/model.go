@@ -270,6 +270,9 @@ type Event struct {
 	DisposeMsg string    `gorm:"size:512" json:"dispose_msg"`
 	OccurredAt time.Time `gorm:"index" json:"occurred_at"`
 
+	// OccurrenceN 同指纹事件条数（列表去重后回填，不落库）
+	OccurrenceN int `gorm:"-" json:"occurrence_n,omitempty"`
+
 	Project *Project `gorm:"foreignKey:ProjectID" json:"project,omitempty"`
 	Rule    *Rule    `gorm:"foreignKey:RuleID" json:"rule,omitempty"`
 }

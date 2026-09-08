@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -105,14 +106,42 @@ func CountRecent(db *gorm.DB, projectID uint, fingerprint string, since time.Tim
 	return n
 }
 
-// HasRecentTask 冷却窗口内是否已有修复任务（同一项目+指纹+仓库）
+// HasRecentTask 冷却窗口内是否已有修复任务（同一项目+指纹）
 func HasRecentTask(db *gorm.DB, projectID uint, fingerprint string, since time.Time) (bool, *model.Task) {
+	return firstTaskByFingerprint(db, projectID, fingerprint, func(q *gorm.DB) *gorm.DB {
+		return q.Where("tasks.created_at >= ?", since)
+	})
+}
+
+// FingerprintBlock 同一项目+指纹：进行中任务去重，或历史已成功则过滤。
+func FingerprintBlock(db *gorm.DB, projectID uint, fingerprint string) (string, *model.Task) {
+	if strings.TrimSpace(fingerprint) == "" {
+		return "", nil
+	}
+	if ok, t := firstTaskByFingerprint(db, projectID, fingerprint, func(q *gorm.DB) *gorm.DB {
+		return q.Where("tasks.status IN ?", []model.TaskStatus{
+			model.TaskStatusPending, model.TaskStatusRunning, model.TaskStatusConfirming,
+		})
+	}); ok {
+		return fmt.Sprintf("同指纹任务 #%d 仍在处理（%s），已去重", t.ID, t.Status), t
+	}
+	if ok, t := firstTaskByFingerprint(db, projectID, fingerprint, func(q *gorm.DB) *gorm.DB {
+		return q.Where("tasks.status = ?", model.TaskStatusSuccess)
+	}); ok {
+		return fmt.Sprintf("同指纹已由任务 #%d 修复成功，已过滤", t.ID), t
+	}
+	return "", nil
+}
+
+func firstTaskByFingerprint(db *gorm.DB, projectID uint, fingerprint string, extra func(*gorm.DB) *gorm.DB) (bool, *model.Task) {
 	var t model.Task
-	err := db.Session(&gorm.Session{NewDB: true}).
-		Joins("LEFT JOIN events ON events.id = tasks.event_id").
-		Where("tasks.project_id = ? AND events.fingerprint = ? AND tasks.created_at >= ?", projectID, fingerprint, since).
-		Order("tasks.id DESC").First(&t).Error
-	if err != nil {
+	q := db.Session(&gorm.Session{NewDB: true}).
+		Joins("JOIN events ON events.id = tasks.event_id").
+		Where("tasks.project_id = ? AND events.fingerprint = ?", projectID, fingerprint)
+	if extra != nil {
+		q = extra(q)
+	}
+	if err := q.Order("tasks.id DESC").First(&t).Error; err != nil {
 		return false, nil
 	}
 	return true, &t

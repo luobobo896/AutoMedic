@@ -10,6 +10,7 @@ import (
 	"github.com/automedic/automedic/internal/model"
 	"github.com/automedic/automedic/internal/service"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // IngestEvent 外部采集器投递接口（令牌鉴权）
@@ -139,21 +140,21 @@ func cidrAllow(list, ip string) bool {
 // ListEvents 事件列表
 func (h *Handlers) ListEvents(c *gin.Context) {
 	var list []model.Event
-	q := h.tdb(c).Model(&model.Event{}).Preload("Project").Preload("Rule")
+	q := h.tdbOn(c, "events").Model(&model.Event{}).Preload("Project").Preload("Rule")
 	if pid := c.Query("project_id"); pid != "" {
-		q = q.Where("project_id = ?", pid)
+		q = q.Where("events.project_id = ?", pid)
 	}
 	if status := c.Query("status"); status != "" {
-		q = q.Where("status = ?", status)
+		q = q.Where("events.status = ?", status)
 	}
 	if level := c.Query("level"); level != "" {
-		q = q.Where("level = ?", level)
+		q = q.Where("events.level = ?", level)
 	}
 	if source := c.Query("source"); source != "" {
-		q = q.Where("source = ?", source)
+		q = q.Where("events.source = ?", source)
 	}
 	if kw := c.Query("keyword"); kw != "" {
-		q = q.Where("title LIKE ? OR message LIKE ?", "%"+kw+"%", "%"+kw+"%")
+		q = q.Where("events.title LIKE ? OR events.message LIKE ?", "%"+kw+"%", "%"+kw+"%")
 	}
 	if days := c.Query("days"); days != "" {
 		var d int
@@ -163,17 +164,65 @@ func (h *Handlers) ListEvents(c *gin.Context) {
 			}
 		}
 		if d > 0 {
-			q = q.Where("occurred_at >= ?", time.Now().AddDate(0, 0, -d))
+			q = q.Where("events.occurred_at >= ?", time.Now().AddDate(0, 0, -d))
 		}
+	}
+	unique := c.DefaultQuery("unique", "1") != "0"
+	if unique {
+		latest := q.Session(&gorm.Session{}).Select("MAX(events.id)").
+			Group("CASE WHEN COALESCE(events.fingerprint, '') = '' THEN CAST(events.id AS text) ELSE events.fingerprint END")
+		q = q.Where("events.id IN (?)", latest)
 	}
 	var total int64
 	q.Count(&total)
 	page, size := QueryPage(c)
-	if err := q.Order("id DESC").Offset((page - 1) * size).Limit(size).Find(&list).Error; err != nil {
+	if err := q.Order("events.id DESC").Offset((page - 1) * size).Limit(size).Find(&list).Error; err != nil {
 		ServerError(c, err)
 		return
 	}
+	fillEventOccurrence(h.tdbOn(c, "events"), list)
 	OKPage(c, list, Page{Page: page, PageSize: size, Total: total})
+}
+
+func fillEventOccurrence(db *gorm.DB, list []model.Event) {
+	fps := make([]string, 0, len(list))
+	seen := map[string]struct{}{}
+	for i := range list {
+		fp := list[i].Fingerprint
+		if fp == "" {
+			list[i].OccurrenceN = 1
+			continue
+		}
+		if _, ok := seen[fp]; ok {
+			continue
+		}
+		seen[fp] = struct{}{}
+		fps = append(fps, fp)
+	}
+	if len(fps) == 0 {
+		return
+	}
+	type row struct {
+		Fingerprint string
+		N           int64
+	}
+	var rows []row
+	_ = db.Model(&model.Event{}).Select("fingerprint, count(*) as n").
+		Where("fingerprint IN ?", fps).Group("fingerprint").Scan(&rows).Error
+	nByFP := map[string]int{}
+	for _, r := range rows {
+		nByFP[r.Fingerprint] = int(r.N)
+	}
+	for i := range list {
+		if list[i].Fingerprint == "" {
+			continue
+		}
+		if n := nByFP[list[i].Fingerprint]; n > 0 {
+			list[i].OccurrenceN = n
+		} else {
+			list[i].OccurrenceN = 1
+		}
+	}
 }
 
 func (h *Handlers) GetEvent(c *gin.Context) {

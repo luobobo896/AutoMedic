@@ -3,7 +3,7 @@
     <div class="am-card">
       <div class="am-toolbar">
         <span style="font-weight:600">事件中心</span>
-        <span class="am-text-dim" style="font-size:12px">生产日志采集器投递的原始事件与处置结果</span>
+        <span class="am-text-dim" style="font-size:12px">同一 bug（指纹）只显示最新一条；重复次数标在标题旁。已成功修复或仍在处理的，入站会直接丢弃。</span>
         <div class="am-flex-1" />
         <el-button :icon="'Refresh'" @click="load" />
       </div>
@@ -43,6 +43,7 @@
         <el-table-column label="标题" min-width="280" show-overflow-tooltip>
           <template #default="{ row }">
             <el-link type="primary" @click="openDetail(row)">{{ row.title }}</el-link>
+            <el-tag v-if="row.occurrence_n > 1" size="small" effect="plain" style="margin-left:8px">{{ row.occurrence_n }} 次</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="项目" width="140">

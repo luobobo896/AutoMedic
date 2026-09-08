@@ -117,7 +117,17 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 		}
 	}
 
-	// 冷却：同一指纹短时间内不重复修复
+	if why, t := FingerprintBlock(db, projectID, fp); why != "" {
+		ev.Status = model.EventStatusDropped
+		ev.DisposeMsg = why
+		saveEvent(db, ev)
+		res.Action = "dropped"
+		res.Reason = why
+		slog.Info("event dropped", "event", ev.ID, "task", t.ID, "reason", why)
+		return res, nil
+	}
+
+	// 冷却：同一指纹短时间内不重复修复（失败/忽略后的抖动）
 	if rule.CooldownSec > 0 {
 		if has, t := HasRecentTask(db, projectID, fp, now.Add(-time.Duration(rule.CooldownSec)*time.Second)); has {
 			ev.Status = model.EventStatusDropped

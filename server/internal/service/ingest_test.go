@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -56,5 +57,59 @@ func TestIngestReplayAfterListPreload(t *testing.T) {
 	}
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIngestDropsDuplicateWhileTaskOpen(t *testing.T) {
+	e := newE2E(t, model.FixModeSemi)
+	first := e.ingest(t)
+	if first.Action != "fix" || len(first.TaskIDs) == 0 {
+		t.Fatalf("首次应创建任务: %+v", first)
+	}
+	dup, err := Ingest(e.db, e.project.ID, nil, &IngestInput{
+		Source: "sentry", Level: "error",
+		Title: first.Event.Title, Message: first.Event.Message, Stack: first.Event.Stack,
+		Fingerprint: first.Event.Fingerprint,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dup.Action != "dropped" {
+		t.Fatalf("进行中应去重，实际 action=%s reason=%s", dup.Action, dup.Reason)
+	}
+	if len(dup.TaskIDs) != 0 {
+		t.Fatalf("去重后不应再开任务: %v", dup.TaskIDs)
+	}
+	if !strings.Contains(dup.Reason, "仍在处理") {
+		t.Fatalf("原因应说明进行中: %s", dup.Reason)
+	}
+}
+
+func TestIngestFiltersFingerprintAlreadyFixed(t *testing.T) {
+	e := newE2E(t, model.FixModeAuto)
+	first := e.ingest(t)
+	if err := e.ex.Execute(context.Background(), first.TaskIDs[0]); err != nil {
+		t.Fatal(err)
+	}
+	var task model.Task
+	if err := e.db.First(&task, first.TaskIDs[0]).Error; err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != model.TaskStatusSuccess {
+		t.Fatalf("期望 success，实际 %s", task.Status)
+	}
+	again, err := Ingest(e.db, e.project.ID, nil, &IngestInput{
+		Source: "sentry", Level: "error",
+		Title: first.Event.Title, Message: first.Event.Message, Stack: first.Event.Stack,
+		Fingerprint: first.Event.Fingerprint,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Action != "dropped" {
+		t.Fatalf("已修复应过滤，实际 action=%s reason=%s", again.Action, again.Reason)
+	}
+	if !strings.Contains(again.Reason, "修复成功") {
+		t.Fatalf("原因应说明已修复: %s", again.Reason)
 	}
 }
