@@ -21,14 +21,14 @@ func TestIngestReplayDoesNotViolateProjectName(t *testing.T) {
 		Source: first.Event.Source, Level: first.Event.Level, Title: first.Event.Title,
 		Message: first.Event.Message, Stack: first.Event.Stack,
 		OccurredAt:  &first.Event.OccurredAt,
-		Fingerprint: Fingerprint("replay", first.Event.Fingerprint, time.Now().Format(time.RFC3339Nano)),
+		Fingerprint: first.Event.Fingerprint,
 	}
 	res, err := Ingest(scoped, first.Event.ProjectID, nil, in)
 	if err != nil {
 		t.Fatalf("重放不应写空项目: %v", err)
 	}
-	if res.Event == nil || res.Event.ID == first.Event.ID {
-		t.Fatal("重放应生成新事件")
+	if res.Event == nil || res.Event.ID != first.Event.ID {
+		t.Fatal("同指纹重放应合并到原事件")
 	}
 	var proj model.Project
 	if err := e.db.First(&proj, e.project.ID).Error; err != nil {
@@ -50,7 +50,7 @@ func TestIngestReplayAfterListPreload(t *testing.T) {
 	_, err := Ingest(scoped, ev.ProjectID, nil, &IngestInput{
 		Source: ev.Source, Level: ev.Level, Title: ev.Title,
 		Message: ev.Message, Stack: ev.Stack, OccurredAt: &ev.OccurredAt,
-		Fingerprint: Fingerprint("replay", ev.Fingerprint, time.Now().Format(time.RFC3339Nano)),
+		Fingerprint: ev.Fingerprint,
 	})
 	if err != nil && strings.Contains(err.Error(), "projects") {
 		t.Fatalf("预加载后重放写了 projects: %v", err)
@@ -111,5 +111,41 @@ func TestIngestFiltersFingerprintAlreadyFixed(t *testing.T) {
 	}
 	if !strings.Contains(again.Reason, "修复成功") {
 		t.Fatalf("原因应说明已修复: %s", again.Reason)
+	}
+	var ev model.Event
+	if err := e.db.First(&ev, first.Event.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if ev.Status != model.EventStatusFixed {
+		t.Fatalf("修复成功后事件应为 fixed，实际 %s", ev.Status)
+	}
+	if again.Event == nil || again.Event.ID != first.Event.ID {
+		t.Fatal("重复入站应合并到原事件，不应再插一行")
+	}
+}
+
+func TestCompactDuplicateEventsKeepsOne(t *testing.T) {
+	e := newE2E(t, model.FixModeSemi)
+	first := e.ingest(t)
+	dup := &model.Event{
+		TenantID: e.project.TenantID, ProjectID: e.project.ID,
+		Source: "sentry", Level: "error", Title: first.Event.Title,
+		Fingerprint: first.Event.Fingerprint, Status: model.EventStatusDropped,
+		OccurredAt: time.Now(), OccurrenceN: 1,
+	}
+	if err := e.db.Create(dup).Error; err != nil {
+		t.Fatal(err)
+	}
+	n, err := CompactDuplicateEvents(e.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n < 1 {
+		t.Fatalf("应删除重复事件，deleted=%d", n)
+	}
+	var count int64
+	e.db.Model(&model.Event{}).Where("project_id = ? AND fingerprint = ?", e.project.ID, first.Event.Fingerprint).Count(&count)
+	if count != 1 {
+		t.Fatalf("压缩后应只剩 1 条，实际 %d", count)
 	}
 }

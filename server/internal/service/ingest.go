@@ -62,24 +62,23 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 		fp = Fingerprint(input.Source, input.Title, firstLines(input.Stack, 3))
 	}
 
-	ev := &model.Event{
-		TenantID:    tenantID,
-		ProjectID:   projectID,
-		TokenID:     tokenID,
-		Source:      defaultStr(input.Source, "custom"),
-		Level:       level,
-		Title:       truncate(input.Title, 500),
-		Message:     input.Message,
-		Stack:       input.Stack,
-		Fingerprint: fp,
-		Payload:     model.MustJSON(input.Payload),
-		Status:      model.EventStatusReceived,
-		OccurredAt:  occurred,
-	}
-	if err := db.Create(ev).Error; err != nil {
+	ev, created, err := findOrMergeEvent(db, tenantID, projectID, tokenID, input, fp, level, occurred)
+	if err != nil {
 		return nil, err
 	}
 	res := &IngestResult{Event: ev}
+
+	if why, t := FingerprintBlock(db, projectID, fp); why != "" {
+		if created {
+			ev.Status = model.EventStatusDropped
+			ev.DisposeMsg = why
+			saveEvent(db, ev)
+		}
+		res.Action = "dropped"
+		res.Reason = why
+		slog.Info("event dropped", "event", ev.ID, "task", t.ID, "reason", why)
+		return res, nil
+	}
 
 	m, why := MatchRule(db, projectID, ev)
 	if m == nil {
@@ -115,16 +114,6 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 			res.Reason = ev.DisposeMsg
 			return res, nil
 		}
-	}
-
-	if why, t := FingerprintBlock(db, projectID, fp); why != "" {
-		ev.Status = model.EventStatusDropped
-		ev.DisposeMsg = why
-		saveEvent(db, ev)
-		res.Action = "dropped"
-		res.Reason = why
-		slog.Info("event dropped", "event", ev.ID, "task", t.ID, "reason", why)
-		return res, nil
 	}
 
 	// 冷却：同一指纹短时间内不重复修复（失败/忽略后的抖动）
@@ -176,7 +165,7 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 		res.TaskIDs = append(res.TaskIDs, task.ID)
 	}
 
-	ev.Status = model.EventStatusMatched
+	ev.Status = model.EventStatusFixing
 	ev.DisposeMsg = fmt.Sprintf("%s；生成 %d 个修复任务", m.Reason, len(res.TaskIDs))
 	saveEvent(db, ev)
 	res.Action = "fix"
@@ -189,11 +178,148 @@ func saveEvent(db *gorm.DB, ev *model.Event) {
 	if ev == nil || ev.ID == 0 {
 		return
 	}
+	upd := map[string]any{
+		"status":       ev.Status,
+		"dispose_msg":  ev.DisposeMsg,
+		"rule_id":      ev.RuleID,
+		"occurrence_n": ev.OccurrenceN,
+		"last_seen_at": ev.LastSeenAt,
+	}
+	_ = db.Model(&model.Event{}).Where("id = ?", ev.ID).Updates(upd).Error
+}
+
+func findOrMergeEvent(db *gorm.DB, tenantID, projectID uint, tokenID *uint, input *IngestInput, fp, level string, occurred time.Time) (*model.Event, bool, error) {
+	now := time.Now()
+	var existing model.Event
+	err := db.Session(&gorm.Session{NewDB: true}).
+		Where("project_id = ? AND fingerprint = ?", projectID, fp).
+		Order("id ASC").First(&existing).Error
+	if err == nil {
+		n := existing.OccurrenceN
+		if n < 1 {
+			n = 1
+		}
+		existing.OccurrenceN = n + 1
+		existing.LastSeenAt = &now
+		if occurred.After(existing.OccurredAt) {
+			existing.OccurredAt = occurred
+		}
+		if input.Message != "" {
+			existing.Message = input.Message
+		}
+		if input.Stack != "" {
+			existing.Stack = input.Stack
+		}
+		_ = db.Model(&model.Event{}).Where("id = ?", existing.ID).Updates(map[string]any{
+			"occurrence_n": existing.OccurrenceN,
+			"last_seen_at": existing.LastSeenAt,
+			"occurred_at":  existing.OccurredAt,
+			"message":      existing.Message,
+			"stack":        existing.Stack,
+		}).Error
+		dupIDs := db.Model(&model.Event{}).Select("id").
+			Where("project_id = ? AND fingerprint = ? AND id <> ?", projectID, fp, existing.ID)
+		_ = db.Model(&model.Task{}).Where("event_id IN (?)", dupIDs).Update("event_id", existing.ID).Error
+		_ = db.Where("project_id = ? AND fingerprint = ? AND id <> ?", projectID, fp, existing.ID).
+			Delete(&model.Event{}).Error
+		return &existing, false, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, err
+	}
+	ev := &model.Event{
+		TenantID:    tenantID,
+		ProjectID:   projectID,
+		TokenID:     tokenID,
+		Source:      defaultStr(input.Source, "custom"),
+		Level:       level,
+		Title:       truncate(input.Title, 500),
+		Message:     input.Message,
+		Stack:       input.Stack,
+		Fingerprint: fp,
+		Payload:     model.MustJSON(input.Payload),
+		Status:      model.EventStatusReceived,
+		OccurredAt:  occurred,
+		LastSeenAt:  &now,
+		OccurrenceN: 1,
+	}
+	if err := db.Create(ev).Error; err != nil {
+		return nil, false, err
+	}
+	return ev, true, nil
+}
+
+// CompactDuplicateEvents 每个项目+指纹只留最早一条，其余删除。
+func CompactDuplicateEvents(db *gorm.DB) (int64, error) {
+	type dup struct {
+		ProjectID   uint
+		Fingerprint string
+		KeepID      uint
+		N           int64
+	}
+	var rows []dup
+	if err := db.Model(&model.Event{}).
+		Select("project_id, fingerprint, MIN(id) as keep_id, COUNT(*) as n").
+		Where("fingerprint <> ''").
+		Group("project_id, fingerprint").
+		Having("COUNT(*) > 1").
+		Scan(&rows).Error; err != nil {
+		return 0, err
+	}
+	var deleted int64
+	for _, r := range rows {
+		dupIDs := db.Model(&model.Event{}).Select("id").
+			Where("project_id = ? AND fingerprint = ? AND id <> ?", r.ProjectID, r.Fingerprint, r.KeepID)
+		_ = db.Model(&model.Task{}).Where("event_id IN (?)", dupIDs).Update("event_id", r.KeepID).Error
+		del := db.Where("project_id = ? AND fingerprint = ? AND id <> ?", r.ProjectID, r.Fingerprint, r.KeepID).
+			Delete(&model.Event{})
+		if del.Error != nil {
+			return deleted, del.Error
+		}
+		deleted += del.RowsAffected
+		_ = db.Model(&model.Event{}).Where("id = ?", r.KeepID).Updates(map[string]any{
+			"occurrence_n": r.N,
+		}).Error
+	}
+	return deleted, nil
+}
+
+// SyncEventFromTask 任务结束回写关联事件，形成闭环。
+func SyncEventFromTask(db *gorm.DB, task *model.Task) {
+	if db == nil || task == nil || task.EventID == nil {
+		return
+	}
+	var ev model.Event
+	if err := db.Session(&gorm.Session{NewDB: true}).First(&ev, *task.EventID).Error; err != nil {
+		return
+	}
+	status, msg := eventStatusFromTask(task)
+	if status == "" {
+		return
+	}
 	_ = db.Model(&model.Event{}).Where("id = ?", ev.ID).Updates(map[string]any{
-		"status":      ev.Status,
-		"dispose_msg": ev.DisposeMsg,
-		"rule_id":     ev.RuleID,
+		"status":      status,
+		"dispose_msg": truncate(msg, 500),
 	}).Error
+}
+
+func eventStatusFromTask(task *model.Task) (model.EventStatus, string) {
+	switch task.Status {
+	case model.TaskStatusSuccess:
+		return model.EventStatusFixed, fmt.Sprintf("任务 #%d 修复成功", task.ID)
+	case model.TaskStatusFailed:
+		return model.EventStatusFailed, fmt.Sprintf("任务 #%d 修复失败：%s", task.ID, task.ErrorMsg)
+	case model.TaskStatusRejected:
+		return model.EventStatusFailed, fmt.Sprintf("任务 #%d 已驳回", task.ID)
+	case model.TaskStatusIgnored:
+		return model.EventStatusIgnored, fmt.Sprintf("任务 #%d 已忽略（无代码变更）", task.ID)
+	case model.TaskStatusCancelled:
+		return model.EventStatusDropped, fmt.Sprintf("任务 #%d 已取消", task.ID)
+	case model.TaskStatusPending, model.TaskStatusRunning, model.TaskStatusConfirming:
+		return model.EventStatusFixing, fmt.Sprintf("任务 #%d 处理中", task.ID)
+	default:
+		return "", ""
+	}
 }
 
 func pickRepos(db *gorm.DB, projectID uint, rule *model.Rule, hint string) ([]model.Repository, error) {

@@ -180,6 +180,9 @@ func (e *Executor) Execute(ctx context.Context, taskID uint) error {
 		slog.Error("update task result failed", "task", taskID, "err", err)
 	}
 	statusVal, _ := patch["status"].(model.TaskStatus)
+	task.Status = statusVal
+	task.ErrorMsg = outcome.ErrMsg
+	SyncEventFromTask(e.db, &task)
 	e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: string(statusVal), Stage: outcome.Stage})
 	e.hub.Publish(ws.Message{Type: "done", TaskID: taskID, Content: outcome.Summary})
 	if outcome.Err != nil {
@@ -460,6 +463,9 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 			fail["fix_commit"] = fin.commit
 		}
 		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(fail)
+		task.Status = model.TaskStatusFailed
+		task.ErrorMsg = err.Error()
+		SyncEventFromTask(e.db, &task)
 		e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: "failed", Stage: fin.stage})
 		return err
 	}
@@ -467,6 +473,9 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 		"status": model.TaskStatusSuccess, "fix_commit": fin.commit, "stage": "done",
 		"finished_at": time.Now(),
 	})
+	task.Status = model.TaskStatusSuccess
+	task.ErrorMsg = ""
+	SyncEventFromTask(e.db, &task)
 	e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: "success", Stage: "done"})
 	return nil
 }
@@ -481,11 +490,16 @@ func (e *Executor) Reject(ctx context.Context, taskID uint, operator, note strin
 		return errors.New("任务不在待确认状态")
 	}
 	now := time.Now()
-	return e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
+	if err := e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
 		"status": model.TaskStatusRejected, "confirmed_by": operator,
 		"confirmed_at": now, "confirm_note": note, "stage": "rejected",
 		"finished_at": now,
-	}).Error
+	}).Error; err != nil {
+		return err
+	}
+	task.Status = model.TaskStatusRejected
+	SyncEventFromTask(e.db, &task)
+	return nil
 }
 
 // ensureWorkspace 确认时复用已有工作区；若丢失则重建并应用已保存补丁

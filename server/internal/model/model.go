@@ -99,6 +99,9 @@ type EventStatus string
 const (
 	EventStatusReceived EventStatus = "received"
 	EventStatusMatched  EventStatus = "matched"
+	EventStatusFixing   EventStatus = "fixing"
+	EventStatusFixed    EventStatus = "fixed"
+	EventStatusFailed   EventStatus = "failed"
 	EventStatusIgnored  EventStatus = "ignored"
 	EventStatusDropped  EventStatus = "dropped"
 )
@@ -267,11 +270,12 @@ type Event struct {
 	// 命中的规则
 	RuleID *uint `json:"rule_id"`
 	// 处置说明
-	DisposeMsg string    `gorm:"size:512" json:"dispose_msg"`
-	OccurredAt time.Time `gorm:"index" json:"occurred_at"`
+	DisposeMsg string     `gorm:"size:512" json:"dispose_msg"`
+	OccurredAt time.Time  `gorm:"index" json:"occurred_at"`
+	LastSeenAt *time.Time `json:"last_seen_at"`
 
-	// OccurrenceN 同指纹事件条数（列表去重后回填，不落库）
-	OccurrenceN int `gorm:"-" json:"occurrence_n,omitempty"`
+	// OccurrenceN 同指纹出现次数（合并重复后落库）
+	OccurrenceN int `gorm:"not null;default:1" json:"occurrence_n"`
 
 	Project *Project `gorm:"foreignKey:ProjectID" json:"project,omitempty"`
 	Rule    *Rule    `gorm:"foreignKey:RuleID" json:"rule,omitempty"`

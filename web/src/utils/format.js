@@ -14,6 +14,9 @@ export const STATUS_META = {
 export const EVENT_STATUS_META = {
   received: { label: '已接收', type: 'info' },
   matched: { label: '已命中规则', type: 'warning' },
+  fixing: { label: '修复中', type: 'primary' },
+  fixed: { label: '已修复', type: 'success' },
+  failed: { label: '修复失败', type: 'danger' },
   ignored: { label: '已忽略', type: 'info' },
   dropped: { label: '已丢弃', type: 'info' }
 }

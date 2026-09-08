@@ -57,6 +57,11 @@ func main() {
 		slog.Error("数据库迁移失败", "err", err)
 		os.Exit(1)
 	}
+	if n, err := service.CompactDuplicateEvents(db); err != nil {
+		slog.Warn("压缩重复事件失败", "err", err)
+	} else if n > 0 {
+		slog.Info("已删除重复事件", "deleted", n)
+	}
 	if err := store.SeedDefault(db); err != nil {
 		slog.Warn("初始化默认数据失败", "err", err)
 	}

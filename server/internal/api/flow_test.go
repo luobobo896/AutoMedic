@@ -377,10 +377,7 @@ func TestClickThroughAllAdminFlows(t *testing.T) {
 	ev, _ := list[0].(map[string]any)
 	eid := idOf(ev)
 	e.ok(http.MethodGet, fmt.Sprintf("/api/v1/events/%d", eid), nil)
-	replayed := e.ok(http.MethodPost, fmt.Sprintf("/api/v1/events/%d/replay", eid), nil)
-	if replayed["event"] == nil && replayed["action"] == nil {
-		t.Fatalf("重放应返回结果: %+v", replayed)
-	}
+	e.failContains(http.MethodPost, fmt.Sprintf("/api/v1/events/%d/replay", eid), nil, "正在修复")
 
 	tasks := e.ok(http.MethodGet, "/api/v1/tasks?page=1&page_size=20", nil)
 	tlist, _ := tasks["list"].([]any)
@@ -392,6 +389,10 @@ func TestClickThroughAllAdminFlows(t *testing.T) {
 	e.ok(http.MethodGet, fmt.Sprintf("/api/v1/tasks/%d", taskID), nil)
 	e.ok(http.MethodGet, fmt.Sprintf("/api/v1/tasks/%d/logs", taskID), nil)
 	e.ok(http.MethodPost, fmt.Sprintf("/api/v1/tasks/%d/cancel", taskID), nil)
+	replayed := e.ok(http.MethodPost, fmt.Sprintf("/api/v1/events/%d/replay", eid), nil)
+	if replayed["event"] == nil && replayed["action"] == nil {
+		t.Fatalf("取消后重放应返回结果: %+v", replayed)
+	}
 
 	users := e.ok(http.MethodGet, "/api/v1/users", nil)
 	if len(asList(users)) == 0 {

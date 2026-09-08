@@ -101,9 +101,23 @@ func matchOne(r *model.Rule, ev *model.Event, blob string) (bool, string) {
 
 // CountRecent 统计时间窗口内同指纹事件数量
 func CountRecent(db *gorm.DB, projectID uint, fingerprint string, since time.Time) int64 {
-	var n int64
-	db.Model(&model.Event{}).Where("project_id = ? AND fingerprint = ? AND occurred_at >= ?", projectID, fingerprint, since).Count(&n)
-	return n
+	var ev model.Event
+	if err := db.Session(&gorm.Session{NewDB: true}).
+		Where("project_id = ? AND fingerprint = ?", projectID, fingerprint).
+		Order("id ASC").First(&ev).Error; err != nil {
+		return 0
+	}
+	seen := ev.OccurredAt
+	if ev.LastSeenAt != nil {
+		seen = *ev.LastSeenAt
+	}
+	if seen.Before(since) {
+		return 0
+	}
+	if ev.OccurrenceN > 0 {
+		return int64(ev.OccurrenceN)
+	}
+	return 1
 }
 
 // HasRecentTask 冷却窗口内是否已有修复任务（同一项目+指纹）

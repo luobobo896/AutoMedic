@@ -184,6 +184,10 @@ func (h *Handlers) CancelTask(c *gin.Context) {
 			return
 		}
 	}
+	var t model.Task
+	if err := h.tdb(c).First(&t, id).Error; err == nil {
+		service.SyncEventFromTask(h.db, &t)
+	}
 	OK(c, gin.H{"cancelled": id})
 }
 
@@ -197,6 +201,10 @@ func (h *Handlers) IgnoreTask(c *gin.Context) {
 		Updates(map[string]any{"status": model.TaskStatusIgnored, "stage": "ignored", "finished_at": time.Now()}).Error; err != nil {
 		ServerError(c, err)
 		return
+	}
+	var t model.Task
+	if err := h.tdb(c).First(&t, id).Error; err == nil {
+		service.SyncEventFromTask(h.db, &t)
 	}
 	OK(c, gin.H{"ignored": id})
 }

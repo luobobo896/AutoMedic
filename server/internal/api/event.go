@@ -253,13 +253,19 @@ func (h *Handlers) ReplayEvent(c *gin.Context) {
 		NotFound(c, "事件不存在")
 		return
 	}
+	if ev.Status == model.EventStatusFixed {
+		BadRequest(c, "该事件已修复成功，不能重放")
+		return
+	}
+	if ev.Status == model.EventStatusFixing {
+		BadRequest(c, "该事件正在修复，不能重放")
+		return
+	}
 	in := &service.IngestInput{
 		Source: ev.Source, Level: ev.Level, Title: ev.Title,
-		Message: ev.Message, Stack: ev.Stack, Fingerprint: "",
+		Message: ev.Message, Stack: ev.Stack, Fingerprint: ev.Fingerprint,
 		OccurredAt: &ev.OccurredAt,
 	}
-	// 复放不计入指纹冷却判定，使用新指纹
-	in.Fingerprint = service.Fingerprint("replay", ev.Fingerprint, time.Now().Format(time.RFC3339Nano))
 	res, err := service.Ingest(h.db, ev.ProjectID, nil, in)
 	if err != nil {
 		BadRequest(c, err)

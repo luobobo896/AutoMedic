@@ -3,7 +3,7 @@
     <div class="am-card">
       <div class="am-toolbar">
         <span style="font-weight:600">事件中心</span>
-        <span class="am-text-dim" style="font-size:12px">同一 bug（指纹）只显示最新一条；重复次数标在标题旁。已成功修复或仍在处理的，入站会直接丢弃。</span>
+        <span class="am-text-dim" style="font-size:12px">同一指纹合并为一条。修复成功后状态同步为「已修复」，不能再重放。</span>
         <div class="am-flex-1" />
         <el-button :icon="'Refresh'" @click="load" />
       </div>
@@ -14,7 +14,9 @@
         </el-select>
         <el-select v-model="query.status" clearable placeholder="全部状态" style="width:150px" @change="load">
           <el-option label="已接收" value="received" />
-          <el-option label="已命中规则" value="matched" />
+          <el-option label="修复中" value="fixing" />
+          <el-option label="已修复" value="fixed" />
+          <el-option label="修复失败" value="failed" />
           <el-option label="已忽略" value="ignored" />
           <el-option label="已丢弃" value="dropped" />
         </el-select>
@@ -61,7 +63,13 @@
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="replay(row)">重放</el-button>
+            <el-button
+              link
+              type="primary"
+              :disabled="!canReplay(row)"
+              :title="replayHint(row)"
+              @click="replay(row)"
+            >重放</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -145,8 +153,18 @@ async function openDetail(row) {
   drawer.value = true
 }
 
+function canReplay(row) {
+  return !['fixed', 'fixing'].includes(row.status)
+}
+function replayHint(row) {
+  if (row.status === 'fixed') return '已修复，不能重放'
+  if (row.status === 'fixing') return '正在修复，不能重放'
+  return ''
+}
+
 async function replay(row) {
-  await ElMessageBox.confirm('重放会重新走一遍规则过滤并生成新的修复任务，确认继续？', '提示', { type: 'warning' })
+  if (!canReplay(row)) return
+  await ElMessageBox.confirm('重放会按同一指纹重新走规则。已修复或修复中的事件不会再开任务。', '提示', { type: 'warning' })
   const r = await replayEvent(row.id)
   ElMessage.success(r.data?.reason || '已重放')
   load()
