@@ -59,19 +59,23 @@
           <el-input-number v-model="ocr.timeout_sec" :min="60" :step="60" /> 秒
         </el-form-item>
         <el-form-item label="审查模型">
-          <el-radio-group v-model="ocrUseDefault">
-            <el-radio :value="true">使用默认模型</el-radio>
-            <el-radio :value="false">指定模型</el-radio>
-          </el-radio-group>
-          <div class="am-text-dim" style="font-size:12px;margin-top:6px">
-            默认：仓库/项目审查模型 → 修复模型 → 全局默认。密钥一律来自大模型配置中心。
+          <div class="ocr-model-field">
+            <el-radio-group v-model="ocrUseDefault">
+              <el-radio :value="true">使用默认模型</el-radio>
+              <el-radio :value="false">指定模型</el-radio>
+            </el-radio-group>
+            <p class="ocr-model-hint">
+              默认顺序：仓库审查模型 → 项目审查模型 → 修复模型 → 全局默认。密钥来自大模型配置中心。
+            </p>
           </div>
         </el-form-item>
         <el-form-item v-if="!ocrUseDefault" label="指定模型">
-          <el-select v-model="ocr.model_id" filterable style="width:360px" placeholder="选择大模型配置中心里的模型">
-            <el-option v-for="m in models" :key="m.id" :label="modelLabel(m)" :value="m.id" />
-          </el-select>
-          <div v-if="!models.length" class="am-text-dim" style="font-size:12px;margin-top:6px">暂无可用模型，请先在「大模型配置中心」添加。</div>
+          <div class="ocr-model-field">
+            <el-select v-model="ocr.model_id" filterable style="width:360px" placeholder="选择大模型配置中心里的模型">
+              <el-option v-for="m in models" :key="m.id" :label="modelLabel(m)" :value="m.id" />
+            </el-select>
+            <p v-if="!models.length" class="ocr-model-hint">暂无可用模型，请先在「大模型配置中心」添加。</p>
+          </div>
         </el-form-item>
       </el-form>
     </div>
@@ -179,3 +183,36 @@ async function save() {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.ocr-model-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+.ocr-model-field :deep(.el-radio-group) {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  min-height: 32px;
+}
+.ocr-model-field :deep(.el-radio) {
+  margin-right: 0;
+  height: 32px;
+  align-items: center;
+}
+.ocr-model-field :deep(.el-radio__label) {
+  line-height: 32px;
+  padding-left: 8px;
+}
+.ocr-model-hint {
+  margin: 0;
+  max-width: 36em;
+  color: var(--am-text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+}
+</style>
