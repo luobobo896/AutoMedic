@@ -11,7 +11,8 @@
       <div class="am-flex-1" />
       <el-button v-if="task.status === 'confirming'" type="success" :icon="'Check'" @click="confirmFix">确认修复并推送</el-button>
       <el-button v-if="task.status === 'confirming'" type="danger" :icon="'Close'" @click="rejectFix">驳回</el-button>
-      <el-button v-if="['failed','ignored','rejected'].includes(task.status)" :icon="'RefreshRight'" @click="retryTaskDo">重试</el-button>
+      <el-button v-if="canResumePush" type="success" :icon="'Upload'" @click="retryPushDo">重试推送</el-button>
+      <el-button v-else-if="['failed','ignored','rejected'].includes(task.status)" :icon="'RefreshRight'" @click="retryTaskDo">重试修复</el-button>
       <el-button v-if="['pending','running'].includes(task.status)" :icon="'CircleClose'" @click="cancelTaskDo">取消</el-button>
       <el-button :icon="'Refresh'" @click="loadAll" />
     </div>
@@ -176,6 +177,14 @@ function appendLogs(rows) {
 
 const changedFiles = computed(() => parseJSON(task.value.changed_files, []) || [])
 const patchLines = computed(() => (patchText.value || '').split('\n'))
+const canResumePush = computed(() => {
+  if (task.value.status !== 'failed') return false
+  return !!(task.value.patch || task.value.fix_commit || task.value.workspace)
+})
+const taskId = computed(() => {
+  const n = Number(id.value)
+  return Number.isInteger(n) && n > 0 ? n : 0
+})
 
 function diffClass(line) {
   if (line.startsWith('+') && !line.startsWith('+++')) return 'add'
@@ -185,11 +194,15 @@ function diffClass(line) {
 }
 
 async function loadAll({ silent } = {}) {
+  if (!taskId.value) {
+    booting.value = false
+    return
+  }
   if (!silent && !task.value.id) booting.value = true
   try {
-    const r = await getTask(id.value)
+    const r = await getTask(taskId.value)
     task.value = r.data || {}
-    const lr = await taskLogs(id.value, silent ? { after_seq: lastSeq, limit: 1000 } : { limit: 2000 })
+    const lr = await taskLogs(taskId.value, silent ? { after_seq: lastSeq, limit: 1000 } : { limit: 2000 })
     if (!silent) {
       logs.value = []
       logIndex = new Set()
@@ -197,7 +210,7 @@ async function loadAll({ silent } = {}) {
     }
     appendLogs(Array.isArray(lr.data) ? lr.data : [])
     if (ended(task.value.status) || task.value.patch || task.value.diff_stat) {
-      const pr = await taskPatch(id.value)
+      const pr = await taskPatch(taskId.value)
       patchText.value = pr.data?.patch || patchText.value
     }
     if (ended(task.value.status)) {
@@ -213,9 +226,9 @@ async function loadAll({ silent } = {}) {
 }
 
 function startWS() {
-  if (ws || ended(task.value.status)) return
+  if (ws || ended(task.value.status) || !taskId.value) return
   try {
-    ws = new WebSocket(taskWSURL(id.value))
+    ws = new WebSocket(taskWSURL(taskId.value))
     ws.onopen = () => { wsConnected.value = true }
     ws.onclose = () => {
       wsConnected.value = false
@@ -250,19 +263,19 @@ function stopWS() {
 function startPolling() {
   if (timer) return
   timer = setInterval(async () => {
-    if (ended(task.value.status)) {
+    if (!taskId.value || ended(task.value.status)) {
       stopPolling()
       return
     }
     try {
-      const r = await getTask(id.value)
+      const r = await getTask(taskId.value)
       task.value = r.data || task.value
       if (!wsConnected.value) {
-        const lr = await taskLogs(id.value, { after_seq: lastSeq, limit: 1000 })
+        const lr = await taskLogs(taskId.value, { after_seq: lastSeq, limit: 1000 })
         appendLogs(Array.isArray(lr.data) ? lr.data : [])
       }
       if (ended(task.value.status)) {
-        const pr = await taskPatch(id.value)
+        const pr = await taskPatch(taskId.value)
         patchText.value = pr.data?.patch || ''
         stopPolling()
         stopWS()
@@ -297,7 +310,7 @@ async function confirmFix() {
     inputPlaceholder: '备注（可选）', inputValue: ''
   }).catch(() => ({ value: null }))
   if (value === null) return
-  await confirmTask(id.value, { operator: 'web', note: value })
+  await confirmTask(taskId.value, { operator: 'web', note: value })
   ElMessage.success('已确认，正在提交推送')
   setTimeout(() => loadAll({ silent: true }), 1500)
 }
@@ -307,13 +320,24 @@ async function rejectFix() {
     inputPlaceholder: '如：定位不准，需人工介入', inputValue: ''
   }).catch(() => ({ value: null }))
   if (value === null) return
-  await rejectTask(id.value, { operator: 'web', note: value })
+  await rejectTask(taskId.value, { operator: 'web', note: value })
   ElMessage.success('已驳回')
   loadAll({ silent: true })
 }
 
+async function retryPushDo() {
+  await retryTask(taskId.value)
+  ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
+  setTimeout(() => loadAll({ silent: true }), 800)
+}
+
 async function retryTaskDo() {
-  const r = await retryTask(id.value)
+  const r = await retryTask(taskId.value)
+  if (r.data?.resume) {
+    ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
+    setTimeout(() => loadAll({ silent: true }), 800)
+    return
+  }
   ElMessage.success('已创建重试任务 #' + r.data.id)
   if (r.data?.id) {
     await router.push('/tasks/' + r.data.id)
@@ -323,7 +347,7 @@ async function retryTaskDo() {
 }
 
 async function cancelTaskDo() {
-  await cancelTask(id.value)
+  await cancelTask(taskId.value)
   ElMessage.success('已取消')
   loadAll({ silent: true })
 }

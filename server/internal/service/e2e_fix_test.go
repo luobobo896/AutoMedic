@@ -434,4 +434,76 @@ func TestE2EWorkspaceCleanupAfterReuse(t *testing.T) {
 	}
 }
 
+func TestCanResumeFinalize(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		task model.Task
+		want bool
+	}{
+		{name: "confirming", task: model.Task{Status: model.TaskStatusConfirming}, want: true},
+		{name: "failed with patch", task: model.Task{Status: model.TaskStatusFailed, Patch: "diff"}, want: true},
+		{name: "failed with commit", task: model.Task{Status: model.TaskStatusFailed, FixCommit: "abc"}, want: true},
+		{name: "failed without artifact", task: model.Task{Status: model.TaskStatusFailed}, want: false},
+		{name: "running", task: model.Task{Status: model.TaskStatusRunning, Patch: "diff"}, want: false},
+		{name: "success", task: model.Task{Status: model.TaskStatusSuccess, Patch: "diff"}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CanResumeFinalize(tc.task); got != tc.want {
+				t.Fatalf("CanResumeFinalize=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestE2ERetryPushAfterConfirmFailure 确认时 push 失败后，重试只推送、不重跑 dsh。
+func TestE2ERetryPushAfterConfirmFailure(t *testing.T) {
+	e := newE2E(t, model.FixModeSemi)
+	res := e.ingest(t)
+	id := res.TaskIDs[0]
+	if err := e.ex.Execute(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	var task model.Task
+	if err := e.db.First(&task, id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != model.TaskStatusConfirming {
+		t.Fatalf("期望 confirming，实际 %s", task.Status)
+	}
+	moved := e.remote + ".offline"
+	if err := os.Rename(e.remote, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ex.Confirm(context.Background(), id, "sen", "LGTM"); err == nil {
+		t.Fatal("远端不可用时期望 Confirm 失败")
+	}
+	if err := e.db.First(&task, id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != model.TaskStatusFailed {
+		t.Fatalf("push 失败后期望 failed，实际 %s", task.Status)
+	}
+	if !CanResumeFinalize(task) {
+		t.Fatal("push 失败后应可重试推送")
+	}
+	if err := os.Rename(moved, e.remote); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ex.Confirm(context.Background(), id, "sen", "retry-push"); err != nil {
+		t.Fatalf("重试推送失败: %v", err)
+	}
+	if err := e.db.First(&task, id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != model.TaskStatusSuccess {
+		t.Fatalf("重试推送后期望 success，实际 %s（%s）", task.Status, task.ErrorMsg)
+	}
+	out, _ := exec.Command("git", "--git-dir", e.remote, "branch", "--list").CombinedOutput()
+	if !strings.Contains(string(out), task.Branch) {
+		t.Fatalf("重试推送后远端未找到分支 %s：%s", task.Branch, string(out))
+	}
+}
+
 var _ = time.Second

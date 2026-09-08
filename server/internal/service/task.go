@@ -340,13 +340,26 @@ func (e *Executor) finalize(ctx context.Context, task *model.Task, wsDir *git.Wo
 	fr := finalizeResult{stage: "commit"}
 	e.db.Model(&model.Task{}).Where("id = ?", task.ID).Update("stage", "commit")
 
-	commitMsg := buildCommitMessage(task)
-	sha, err := wsDir.Commit(ctx, commitMsg)
-	if err != nil {
-		return fr, err
+	changed, _ := wsDir.ChangedFiles(ctx)
+	if len(changed) == 0 {
+		sha, err := wsDir.Head(ctx)
+		if err != nil {
+			return fr, err
+		}
+		if sha == "" || sha == task.BaseCommit {
+			return fr, errors.New("工作区无变更且无本地提交，无法推送")
+		}
+		fr.commit = sha
+		sink("sys", fmt.Sprintf("[git] 已有提交 %s，跳过 commit", sha[:minLen(sha, 8)]))
+	} else {
+		commitMsg := buildCommitMessage(task)
+		sha, err := wsDir.Commit(ctx, commitMsg)
+		if err != nil {
+			return fr, err
+		}
+		fr.commit = sha
+		sink("sys", fmt.Sprintf("[git] 已提交 %s", sha[:minLen(sha, 8)]))
 	}
-	fr.commit = sha
-	sink("sys", fmt.Sprintf("[git] 已提交 %s", sha[:minLen(sha, 8)]))
 
 	var repo model.Repository
 	_ = e.db.Preload("Credential").First(&repo, task.RepoID).Error
@@ -398,22 +411,38 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 	if err := e.db.Preload("Event").Preload("Rule").First(&task, taskID).Error; err != nil {
 		return err
 	}
-	if task.Status != model.TaskStatusConfirming {
-		return errors.New("任务不在待确认状态")
+	if !CanResumeFinalize(task) {
+		return errors.New("任务不在待确认或可重试推送状态")
 	}
+	e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
+		"status": model.TaskStatusRunning, "error_msg": "",
+	})
+	e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: string(model.TaskStatusRunning), Stage: task.Stage})
 	lw := NewLogWriter(e.db, e.hub, taskID)
 	defer lw.Close()
 	sink := lw.Sink()
 
 	wsDir, err := e.ensureWorkspace(ctx, &task, sink)
 	if err != nil {
+		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
+			"status": model.TaskStatusFailed, "error_msg": err.Error(),
+		})
 		return err
 	}
 	defer wsDir.Cleanup()
 
 	changed, _ := wsDir.ChangedFiles(ctx)
 	if len(changed) == 0 {
-		return errors.New("工作区无变更，可能已提交或工作区被清理，请重新执行任务")
+		head, _ := wsDir.Head(ctx)
+		if head != "" && head != task.BaseCommit {
+			sink("sys", "[git] 工作区已提交，跳过 commit，继续推送")
+		} else if strings.TrimSpace(task.Patch) != "" && task.Workspace != "" {
+			if err := applyPatchFile(ctx, e.cfg.Git.Bin, wsDir.Dir, task.ID, task.Patch, sink); err != nil {
+				return err
+			}
+		} else {
+			return errors.New("工作区无变更且无本地提交，无法推送")
+		}
 	}
 
 	now := time.Now()
@@ -424,9 +453,14 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 
 	fin, err := e.finalize(ctx, &task, wsDir, sink)
 	if err != nil {
-		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
+		fail := map[string]any{
 			"status": model.TaskStatusFailed, "error_msg": err.Error(), "stage": fin.stage,
-		})
+		}
+		if fin.commit != "" {
+			fail["fix_commit"] = fin.commit
+		}
+		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(fail)
+		e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: "failed", Stage: fin.stage})
 		return err
 	}
 	e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
@@ -479,18 +513,38 @@ func (e *Executor) ensureWorkspace(ctx context.Context, task *model.Task, sink e
 	if err != nil {
 		return nil, err
 	}
-	patchPath := filepath.Join(os.TempDir(), fmt.Sprintf("am-task-%d.patch", task.ID))
-	if err := os.WriteFile(patchPath, []byte(task.Patch), 0o600); err != nil {
+	if err := applyPatchFile(ctx, e.cfg.Git.Bin, wsDir.Dir, task.ID, task.Patch, sink); err != nil {
 		wsDir.Cleanup()
 		return nil, err
 	}
-	defer os.Remove(patchPath)
-	if out, code, err := execx.RunSimple(ctx, wsDir.Dir, e.cfg.Git.Bin, "apply", "--whitespace=nowarn", patchPath); err != nil {
-		sink("stderr", out)
-		wsDir.Cleanup()
-		return nil, fmt.Errorf("应用补丁失败(code=%d): %w", code, err)
-	}
 	return wsDir, nil
+}
+
+func applyPatchFile(ctx context.Context, gitBin, dir string, taskID uint, patch string, sink execx.Sink) error {
+	patchPath := filepath.Join(os.TempDir(), fmt.Sprintf("am-task-%d.patch", taskID))
+	if err := os.WriteFile(patchPath, []byte(patch), 0o600); err != nil {
+		return err
+	}
+	defer os.Remove(patchPath)
+	out, code, err := execx.RunSimple(ctx, dir, gitBin, "apply", "--whitespace=nowarn", patchPath)
+	if err != nil {
+		if sink != nil {
+			sink("stderr", out)
+		}
+		return fmt.Errorf("应用补丁失败(code=%d): %w", code, err)
+	}
+	return nil
+}
+
+// CanResumeFinalize 补丁或提交已在，失败后应重试推送而不是重跑 dsh。
+func CanResumeFinalize(t model.Task) bool {
+	if t.Status == model.TaskStatusConfirming {
+		return true
+	}
+	if t.Status != model.TaskStatusFailed {
+		return false
+	}
+	return t.Patch != "" || t.FixCommit != "" || strings.TrimSpace(t.Workspace) != ""
 }
 
 func buildInstruction(p *model.Project, r *model.Repository, extra string) string {

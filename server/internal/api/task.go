@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/automedic/automedic/internal/model"
+	"github.com/automedic/automedic/internal/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -114,6 +115,21 @@ func (h *Handlers) RetryTask(c *gin.Context) {
 	var src model.Task
 	if err := h.tdb(c).Preload("Rule").First(&src, id).Error; err != nil {
 		NotFound(c, "任务不存在")
+		return
+	}
+	if src.Status == model.TaskStatusRunning && (src.Patch != "" || src.FixCommit != "" || src.Workspace != "") {
+		OK(c, gin.H{"id": src.ID, "resume": true, "status": src.Status})
+		return
+	}
+	if src.Status == model.TaskStatusFailed && service.CanResumeFinalize(src) {
+		go func() {
+			if err := h.exec.Confirm(context.Background(), id, "web", "重试推送"); err != nil {
+				h.db.Model(&model.Task{}).Where("id = ?", id).Updates(map[string]any{
+					"status": model.TaskStatusFailed, "error_msg": err.Error(),
+				})
+			}
+		}()
+		OK(c, gin.H{"id": src.ID, "resume": true, "status": src.Status})
 		return
 	}
 	maxRetry := 3

@@ -53,7 +53,7 @@
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="$router.push('/tasks/' + row.id)">详情</el-button>
-            <el-button link type="primary" @click.stop="retry(row)">重试</el-button>
+            <el-button link type="primary" @click.stop="retry(row)">{{ canResumePush(row) ? '重试推送' : '重试' }}</el-button>
             <el-button link @click.stop="cancel(row)">取消</el-button>
           </template>
         </el-table-column>
@@ -87,9 +87,17 @@ async function load() {
   } finally { loading.value = false }
 }
 
+function canResumePush(row) {
+  return row.status === 'failed' && !!(row.patch || row.fix_commit || row.workspace)
+}
+
 async function retry(row) {
   const r = await retryTask(row.id)
-  ElMessage.success('已创建重试任务 #' + r.data.id)
+  if (r.data?.resume) {
+    ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
+  } else {
+    ElMessage.success('已创建重试任务 #' + r.data.id)
+  }
   load()
 }
 

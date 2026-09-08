@@ -54,6 +54,7 @@ http.interceptors.response.use(
     return data
   },
   async (err) => {
+    if (err?.silent) return Promise.reject(err)
     const status = err?.response?.status
     const msg = err?.response?.data?.message || err.message || '网络错误'
     if (status === 401 && !err.config?._retry && getRefreshToken()) {
@@ -164,16 +165,30 @@ export const listEvents = (params) => http.get('/v1/events', { params })
 export const getEvent = (id) => http.get(`/v1/events/${id}`)
 export const replayEvent = (id) => http.post(`/v1/events/${id}/replay`)
 
+function intID(id) {
+  const n = Number(id)
+  return Number.isInteger(n) && n > 0 ? n : 0
+}
+function withTaskID(id, fn) {
+  const n = intID(id)
+  if (!n) {
+    const err = new Error('skip')
+    err.silent = true
+    return Promise.reject(err)
+  }
+  return fn(n)
+}
+
 // ---------- 任务 ----------
 export const listTasks = (params) => http.get('/v1/tasks', { params })
-export const getTask = (id) => http.get(`/v1/tasks/${id}`)
-export const retryTask = (id) => http.post(`/v1/tasks/${id}/retry`)
-export const cancelTask = (id) => http.post(`/v1/tasks/${id}/cancel`)
-export const ignoreTask = (id) => http.post(`/v1/tasks/${id}/ignore`)
-export const confirmTask = (id, data) => http.post(`/v1/tasks/${id}/confirm`, data)
-export const rejectTask = (id, data) => http.post(`/v1/tasks/${id}/reject`, data)
-export const taskLogs = (id, params) => http.get(`/v1/tasks/${id}/logs`, { params })
-export const taskPatch = (id) => http.get(`/v1/tasks/${id}/patch`)
+export const getTask = (id) => withTaskID(id, n => http.get(`/v1/tasks/${n}`))
+export const retryTask = (id) => withTaskID(id, n => http.post(`/v1/tasks/${n}/retry`))
+export const cancelTask = (id) => withTaskID(id, n => http.post(`/v1/tasks/${n}/cancel`))
+export const ignoreTask = (id) => withTaskID(id, n => http.post(`/v1/tasks/${n}/ignore`))
+export const confirmTask = (id, data) => withTaskID(id, n => http.post(`/v1/tasks/${n}/confirm`, data))
+export const rejectTask = (id, data) => withTaskID(id, n => http.post(`/v1/tasks/${n}/reject`, data))
+export const taskLogs = (id, params) => withTaskID(id, n => http.get(`/v1/tasks/${n}/logs`, { params }))
+export const taskPatch = (id) => withTaskID(id, n => http.get(`/v1/tasks/${n}/patch`))
 
 // ---------- 统计 ----------
 export const statsOverview = (params) => http.get('/v1/stats/overview', { params })
@@ -189,9 +204,10 @@ export const updateDict = (id, data) => http.put(`/v1/dicts/${id}`, data)
 export const deleteDict = (id) => http.delete(`/v1/dicts/${id}`)
 
 export function taskWSURL(taskId) {
+  const n = intID(taskId)
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const root = String(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')
-  return `${proto}//${location.host}${root}ws/tasks/${taskId}?token=${encodeURIComponent(getToken())}`
+  return `${proto}//${location.host}${root}ws/tasks/${n}?token=${encodeURIComponent(getToken())}`
 }
 
 export default http

@@ -284,6 +284,15 @@ func (w *Workspace) Push(ctx context.Context, remoteURL string, env map[string]s
 	return nil
 }
 
+// Head 返回当前 HEAD 提交。
+func (w *Workspace) Head(ctx context.Context) (string, error) {
+	sha, _, err := w.mgr.runOut(ctx, w.Dir, nil, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(sha), nil
+}
+
 // OpenWorkspace 打开已存在的工作区（人工确认阶段复用）
 func (m *Manager) OpenWorkspace(dir, branch string) *Workspace {
 	return &Workspace{mgr: m, Dir: dir, Branch: branch}
