@@ -52,9 +52,22 @@
         </el-form-item>
         <el-form-item label="仓库名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="仓库地址"><el-input v-model="form.url" placeholder="git@github.com:org/repo.git 或 https://..." /></el-form-item>
-        <el-form-item label="分支"><el-input v-model="form.branch" /></el-form-item>
-        <el-form-item label="主要语言"><el-input v-model="form.language" /></el-form-item>
-        <el-form-item label="关注路径"><el-input v-model="form.code_paths" placeholder="逗号分隔" /></el-form-item>
+        <el-form-item label="分支">
+          <el-select v-model="form.branch" filterable allow-create default-first-option style="width:100%" placeholder="main">
+            <el-option v-for="b in dict.values('git_branch')" :key="b" :label="b" :value="b" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="主要语言">
+          <el-select v-model="form.language" filterable allow-create default-first-option clearable style="width:100%">
+            <el-option v-for="l in dict.values('language')" :key="l" :label="l" :value="l" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="关注路径">
+          <el-select v-model="form.code_paths" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%" placeholder="勾选目录前缀，可输入后回车">
+            <el-option v-for="p in dict.values('code_path')" :key="p" :label="p" :value="p" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="git 凭证">
           <el-select v-model="form.credential_id" clearable style="width:100%">
             <el-option v-for="c in credentials" :key="c.id" :label="`${c.name}（${c.type}）`" :value="c.id" />
@@ -88,9 +101,11 @@
 import { ref, reactive, onMounted } from 'vue'
 import { listRepos, createRepo, updateRepo, deleteRepo, testRepo, listProjects, listCredentials, listModels } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useDicts, splitCSV, joinCSV } from '@/composables/useDicts'
 import RepoTreeDrawer from './RepoTreeDrawer.vue'
 import RepoReviewDrawer from './RepoReviewDrawer.vue'
 
+const dict = useDicts()
 const list = ref([])
 const projects = ref([])
 const credentials = ref([])
@@ -102,7 +117,7 @@ const treeRepo = ref(null)
 const reviewDrawer = ref(false)
 const reviewRepo = ref(null)
 const query = reactive({ project_id: '' })
-const form = ref({ auto_push: true, enabled: true, branch: 'main' })
+const form = ref({ auto_push: true, enabled: true, branch: 'main', code_paths: [] })
 
 function projectName(id) {
   return projects.value.find(p => p.id === id)?.name || '-'
@@ -117,14 +132,33 @@ async function load() {
 }
 
 function openCreate() {
-  form.value = { auto_push: true, enabled: true, branch: 'main', project_id: query.project_id || projects.value[0]?.id }
+  form.value = { auto_push: true, enabled: true, branch: 'main', code_paths: [], project_id: query.project_id || projects.value[0]?.id }
   dialog.value = true
 }
-function openEdit(row) { form.value = { ...row }; dialog.value = true }
+function openEdit(row) {
+  form.value = {
+    id: row.id, project_id: row.project_id, name: row.name, url: row.url, branch: row.branch,
+    language: row.language, code_paths: splitCSV(row.code_paths), credential_id: row.credential_id,
+    model_id: row.model_id, review_model_id: row.review_model_id,
+    auto_push: row.auto_push, enabled: row.enabled
+  }
+  dialog.value = true
+}
+
+function repoPayload(f) {
+  return {
+    project_id: f.project_id, name: f.name, url: f.url, branch: f.branch || 'main',
+    language: f.language || '', code_paths: Array.isArray(f.code_paths) ? joinCSV(f.code_paths) : (f.code_paths || ''),
+    credential_id: f.credential_id || null, model_id: f.model_id || null,
+    review_model_id: f.review_model_id || null, auto_push: !!f.auto_push,
+    enabled: f.enabled !== false
+  }
+}
 
 async function submit() {
-  if (form.value.id) await updateRepo(form.value.id, form.value)
-  else await createRepo(form.value)
+  const payload = repoPayload(form.value)
+  if (form.value.id) await updateRepo(form.value.id, payload)
+  else await createRepo(payload)
   ElMessage.success('已保存')
   dialog.value = false
   load()
@@ -152,7 +186,7 @@ async function remove(row) {
 }
 
 onMounted(async () => {
-  const [p, c, m] = await Promise.all([listProjects({ page_size: 100 }), listCredentials(), listModels()])
+  const [p, c, m] = await Promise.all([listProjects({ page_size: 100 }), listCredentials(), listModels(), dict.load()])
   projects.value = p.data?.list || []
   credentials.value = c.data || []
   models.value = m.data || []

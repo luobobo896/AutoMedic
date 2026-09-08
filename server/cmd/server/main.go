@@ -60,6 +60,9 @@ func main() {
 	if err := store.SeedDefault(db); err != nil {
 		slog.Warn("初始化默认数据失败", "err", err)
 	}
+	if err := store.SeedDicts(db); err != nil {
+		slog.Warn("初始化字典失败", "err", err)
+	}
 
 	if err := store.SeedRBAC(db, cfg); err != nil {
 		slog.Error("初始化租户与权限数据失败", "err", err)

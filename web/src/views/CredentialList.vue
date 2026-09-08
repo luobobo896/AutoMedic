@@ -120,11 +120,22 @@ async function load() {
 }
 
 function openCreate() { form.value = { type: 'ssh_key', enabled: true }; dialog.value = true }
-function openEdit(row) { form.value = { ...row, secret: '', passphrase: '' }; dialog.value = true }
+function openEdit(row) {
+  form.value = {
+    id: row.id, name: row.name, type: row.type, username: row.username,
+    description: row.description, enabled: row.enabled, secret: '', passphrase: ''
+  }
+  dialog.value = true
+}
 
 async function submit() {
-  if (form.value.id) await updateCredential(form.value.id, form.value)
-  else await createCredential(form.value)
+  const payload = {
+    name: form.value.name, type: form.value.type, username: form.value.username || '',
+    description: form.value.description || '', enabled: form.value.enabled !== false,
+    secret: form.value.secret || '', passphrase: form.value.passphrase || ''
+  }
+  if (form.value.id) await updateCredential(form.value.id, payload)
+  else await createCredential(payload)
   ElMessage.success('已保存')
   dialog.value = false
   load()

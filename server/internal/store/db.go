@@ -91,15 +91,15 @@ func SeedDefault(db *gorm.DB) error {
 	}
 	providers := []model.Provider{
 		{Name: "DeepSeek 官方", Key: "deepseek-official", Kind: "deepseek",
-			MaxInputContext: 1048576, MaxOutputContext: 131072, Enabled: true, Remark: "dsh 内置 provider"},
-		{Name: "OpenAI", Key: "openai", Kind: "openai", MaxInputContext: 1000000, MaxOutputContext: 65536},
-		{Name: "Anthropic Claude", Key: "anthropic", Kind: "anthropic", MaxInputContext: 1000000, MaxOutputContext: 65536},
-		{Name: "通义千问（阿里云）", Key: "qwen", Kind: "qwen", MaxInputContext: 1000000, MaxOutputContext: 65536},
-		{Name: "智谱 GLM", Key: "zhipu", Kind: "zhipu", MaxInputContext: 1000000, MaxOutputContext: 65536},
-		{Name: "月之暗面 Kimi", Key: "moonshot", Kind: "moonshot", MaxInputContext: 1000000, MaxOutputContext: 65536},
-		{Name: "豆包（火山引擎）", Key: "doubao", Kind: "doubao", MaxInputContext: 1000000, MaxOutputContext: 65536},
-		{Name: "Google Gemini", Key: "gemini", Kind: "gemini", MaxInputContext: 2000000, MaxOutputContext: 65536},
-		{Name: "自定义 OpenAI 兼容", Key: "openai-compatible", Kind: "custom", MaxInputContext: 1000000, MaxOutputContext: 65536},
+			Enabled: true, Remark: "dsh 内置 provider"},
+		{Name: "OpenAI", Key: "openai", Kind: "openai"},
+		{Name: "Anthropic Claude", Key: "anthropic", Kind: "anthropic"},
+		{Name: "通义千问（阿里云）", Key: "qwen", Kind: "qwen"},
+		{Name: "智谱 GLM", Key: "zhipu", Kind: "zhipu"},
+		{Name: "月之暗面 Kimi", Key: "moonshot", Kind: "moonshot"},
+		{Name: "豆包（火山引擎）", Key: "doubao", Kind: "doubao"},
+		{Name: "Google Gemini", Key: "gemini", Kind: "gemini"},
+		{Name: "自定义 OpenAI 兼容", Key: "openai-compatible", Kind: "custom"},
 	}
 	if err := db.Create(&providers).Error; err != nil {
 		return errors.Join(errors.New("seed providers failed"), err)

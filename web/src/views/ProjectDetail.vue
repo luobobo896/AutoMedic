@@ -15,7 +15,7 @@
       <el-tab-pane label="仓库" name="repos">
         <div class="am-card">
           <div class="am-toolbar">
-            <el-button type="primary" size="small" :icon="'Plus'" @click="repoDialog = true">关联仓库</el-button>
+            <el-button type="primary" size="small" :icon="'Plus'" @click="openCreateRepo">关联仓库</el-button>
           </div>
           <el-table :data="detail.repos || []" size="small">
             <el-table-column prop="name" label="名称" width="160" />
@@ -49,7 +49,7 @@
       <el-tab-pane label="修复规则" name="rules">
         <div class="am-card">
           <div class="am-toolbar">
-            <el-button type="primary" size="small" :icon="'Plus'" @click="ruleDialog = true">新增规则</el-button>
+            <el-button type="primary" size="small" :icon="'Plus'" @click="openCreateRule">新增规则</el-button>
             <span class="am-text-dim" style="font-size:12px">规则决定告警是否触发代码修改；未命中任何规则的事件默认忽略</span>
           </div>
           <el-table :data="detail.rules || []" size="small">
@@ -153,10 +153,21 @@
       <el-form :model="repoForm" label-width="110px">
         <el-form-item label="仓库名称"><el-input v-model="repoForm.name" /></el-form-item>
         <el-form-item label="仓库地址"><el-input v-model="repoForm.url" placeholder="git@github.com:org/repo.git 或 https://..." /></el-form-item>
-        <el-form-item label="分支"><el-input v-model="repoForm.branch" placeholder="main" /></el-form-item>
-        <el-form-item label="主要语言"><el-input v-model="repoForm.language" placeholder="Go / Java / TypeScript" /></el-form-item>
+        <el-form-item label="分支">
+          <el-select v-model="repoForm.branch" filterable allow-create default-first-option style="width:100%" placeholder="main">
+            <el-option v-for="b in dict.values('git_branch')" :key="b" :label="b" :value="b" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="主要语言">
+          <el-select v-model="repoForm.language" filterable allow-create default-first-option clearable style="width:100%">
+            <el-option v-for="l in dict.values('language')" :key="l" :label="l" :value="l" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="关注路径">
-          <el-input v-model="repoForm.code_paths" placeholder="逗号分隔，如 internal/order,internal/pay" />
+          <el-select v-model="repoForm.code_paths" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%" placeholder="勾选目录前缀，可输入后回车">
+            <el-option v-for="p in dict.values('code_path')" :key="p" :label="p" :value="p" />
+          </el-select>
         </el-form-item>
         <el-form-item label="git 凭证">
           <el-select v-model="repoForm.credential_id" clearable style="width:100%">
@@ -187,23 +198,44 @@
         <el-form-item label="规则名称"><el-input v-model="ruleForm.name" /></el-form-item>
         <el-form-item label="优先级"><el-input-number v-model="ruleForm.priority" :min="0" :max="999" /></el-form-item>
         <el-form-item label="日志级别">
-          <el-input v-model="ruleForm.levels" placeholder="逗号分隔，如 fatal,error；留空不限" />
+          <el-select v-model="ruleForm.levels" multiple clearable collapse-tags style="width:100%" placeholder="留空不限">
+            <el-option v-for="o in dict.options('log_level')" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
         </el-form-item>
         <el-form-item label="命中关键字">
-          <el-input v-model="ruleForm.keywords" placeholder="任一命中即触发，逗号分隔，如 panic,nil pointer" />
+          <el-select v-model="ruleForm.keywords" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%" placeholder="勾选或输入后回车">
+            <el-option v-for="k in dict.values('hit_keyword')" :key="k" :label="k" :value="k" />
+          </el-select>
         </el-form-item>
         <el-form-item label="排除关键字">
-          <el-input v-model="ruleForm.exclude_keywords"
-            placeholder="命中则跳过修复，如 余额不足,第三方,权限不足,限流" />
+          <el-select v-model="ruleForm.exclude_keywords" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%">
+            <el-option v-for="k in dict.values('exclude_keyword')" :key="k" :label="k" :value="k" />
+          </el-select>
         </el-form-item>
-        <el-form-item label="来源白名单"><el-input v-model="ruleForm.sources" placeholder="逗号分隔；留空不限" /></el-form-item>
-        <el-form-item label="排除来源"><el-input v-model="ruleForm.exclude_sources" placeholder="如 biz-reject" /></el-form-item>
+        <el-form-item label="来源白名单">
+          <el-select v-model="ruleForm.sources" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%" placeholder="留空不限">
+            <el-option v-for="s in dict.values('event_source')" :key="s" :label="s" :value="s" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="排除来源">
+          <el-select v-model="ruleForm.exclude_sources" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%">
+            <el-option v-for="s in dict.values('event_source')" :key="'ex-'+s" :label="s" :value="s" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="频次阈值">
           <el-input-number v-model="ruleForm.min_count" :min="1" /> 次 /
-          <el-input-number v-model="ruleForm.window_sec" :min="60" :step="60" /> 秒
+          <el-select v-model="ruleForm.window_sec" style="width:140px">
+            <el-option v-for="o in dict.numberOptions('window_sec')" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
         </el-form-item>
         <el-form-item label="冷却时间">
-          <el-input-number v-model="ruleForm.cooldown_sec" :min="0" :step="60" /> 秒（同一指纹不重复修复）
+          <el-select v-model="ruleForm.cooldown_sec" style="width:160px">
+            <el-option v-for="o in dict.numberOptions('cooldown_sec')" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
         </el-form-item>
         <el-form-item label="动作">
           <el-radio-group v-model="ruleForm.action">
@@ -246,9 +278,11 @@ import {
 } from '@/api'
 import { formatTime } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useDicts, splitCSV, joinCSV } from '@/composables/useDicts'
 import RepoTreeDrawer from './RepoTreeDrawer.vue'
 import RepoReviewDrawer from './RepoReviewDrawer.vue'
 
+const dict = useDicts()
 const route = useRoute()
 const id = ref(route.params.id)
 const detail = ref({})
@@ -263,8 +297,12 @@ const treeRepo = ref(null)
 const reviewDrawer = ref(false)
 const reviewRepo = ref(null)
 const ruleDialog = ref(false)
-const repoForm = ref({ auto_push: true, branch: 'main' })
-const ruleForm = ref({ enabled: true, action: 'fix', priority: 0, min_count: 1, window_sec: 300, cooldown_sec: 600, max_retries: 2, fix_mode: '' })
+const repoForm = ref({ auto_push: true, branch: 'main', code_paths: [] })
+const ruleForm = ref({
+  enabled: true, action: 'fix', priority: 0, min_count: 1, window_sec: 300, cooldown_sec: 600,
+  max_retries: 2, fix_mode: '', levels: ['fatal', 'error'], keywords: [], exclude_keywords: [],
+  sources: [], exclude_sources: []
+})
 const form = ref({})
 
 async function load() {
@@ -279,7 +317,13 @@ async function load() {
 }
 
 async function saveRepo() {
-  await createRepo({ ...repoForm.value, project_id: Number(id.value) })
+  const f = repoForm.value
+  await createRepo({
+    project_id: Number(id.value), name: f.name, url: f.url, branch: f.branch || 'main',
+    language: f.language || '', code_paths: Array.isArray(f.code_paths) ? joinCSV(f.code_paths) : (f.code_paths || ''),
+    credential_id: f.credential_id || null, model_id: f.model_id || null,
+    review_model_id: f.review_model_id || null, auto_push: f.auto_push !== false
+  })
   ElMessage.success('已关联')
   repoDialog.value = false
   load()
@@ -307,11 +351,45 @@ async function removeRepo(row) {
   load()
 }
 
-function editRule(row) { ruleForm.value = { ...row }; ruleDialog.value = true }
+function openCreateRepo() {
+  repoForm.value = { auto_push: true, branch: 'main', code_paths: [], language: '' }
+  repoDialog.value = true
+}
+
+function openCreateRule() {
+  ruleForm.value = {
+    enabled: true, action: 'fix', priority: 0, min_count: 1, window_sec: 300, cooldown_sec: 600,
+    max_retries: 2, fix_mode: '', levels: ['fatal', 'error'], keywords: [], exclude_keywords: [],
+    sources: [], exclude_sources: []
+  }
+  ruleDialog.value = true
+}
+
+function editRule(row) {
+  ruleForm.value = {
+    id: row.id, name: row.name, enabled: row.enabled, priority: row.priority,
+    levels: splitCSV(row.levels), sources: splitCSV(row.sources), keywords: splitCSV(row.keywords),
+    exclude_keywords: splitCSV(row.exclude_keywords), exclude_sources: splitCSV(row.exclude_sources),
+    min_count: row.min_count, window_sec: row.window_sec, cooldown_sec: row.cooldown_sec,
+    action: row.action, repo_ids: row.repo_ids, model_id: row.model_id, fix_mode: row.fix_mode || '',
+    max_retries: row.max_retries, prompt_template: row.prompt_template, description: row.description
+  }
+  ruleDialog.value = true
+}
 
 async function saveRule() {
-  const payload = { ...ruleForm.value, project_id: Number(id.value) }
-  if (payload.id) await updateRule(payload.id, payload)
+  const f = ruleForm.value
+  const payload = {
+    project_id: Number(id.value), name: f.name, enabled: f.enabled !== false, priority: f.priority || 0,
+    levels: joinCSV(f.levels), sources: joinCSV(f.sources), keywords: joinCSV(f.keywords),
+    all_keywords: '', exclude_keywords: joinCSV(f.exclude_keywords),
+    exclude_sources: joinCSV(f.exclude_sources), pattern: '',
+    min_count: f.min_count, window_sec: f.window_sec, cooldown_sec: f.cooldown_sec,
+    action: f.action || 'fix', repo_ids: f.repo_ids || '', model_id: f.model_id || null,
+    fix_mode: f.fix_mode || '', max_retries: f.max_retries,
+    prompt_template: f.prompt_template || '', description: f.description || ''
+  }
+  if (f.id) await updateRule(f.id, payload)
   else await createRule(payload)
   ElMessage.success('已保存')
   ruleDialog.value = false
@@ -345,7 +423,13 @@ async function removeToken(row) {
 }
 
 async function saveProject() {
-  await updateProject(id.value, form.value)
+  const f = form.value
+  await updateProject(id.value, {
+    name: f.name, description: f.description || '', fix_mode: f.fix_mode,
+    default_model_id: f.default_model_id || null,
+    default_review_model_id: f.default_review_model_id || null,
+    release_hook: f.release_hook || '', enabled: f.enabled !== false, context: f.context || ''
+  })
   ElMessage.success('已保存')
   load()
 }
@@ -353,7 +437,7 @@ async function saveProject() {
 watch(() => route.params.id, (v) => { id.value = v; load() })
 
 onMounted(async () => {
-  const [m, c] = await Promise.all([listModels(), listCredentials()])
+  const [m, c] = await Promise.all([listModels(), listCredentials(), dict.load()])
   models.value = m.data || []
   credentials.value = c.data || []
   load()

@@ -12,6 +12,7 @@ import ModelConfig from '@/views/ModelConfig.vue'
 import CredentialList from '@/views/CredentialList.vue'
 import TokenList from '@/views/TokenList.vue'
 import Settings from '@/views/Settings.vue'
+import DictList from '@/views/DictList.vue'
 import Login from '@/views/Login.vue'
 import UserList from '@/views/UserList.vue'
 import RoleList from '@/views/RoleList.vue'
@@ -34,6 +35,7 @@ const routes = [
   { path: '/credentials', name: 'credentials', component: CredentialList, meta: { title: '凭证中心', icon: 'Key', perm: 'credential:read' } },
   { path: '/tokens', name: 'tokens', component: TokenList, meta: { title: '项目令牌', icon: 'Ticket', perm: 'token:read' } },
   { path: '/settings', name: 'settings', component: Settings, meta: { title: '运行设置', icon: 'Setting', perm: 'settings:read' } },
+  { path: '/dicts', name: 'dicts', component: DictList, meta: { title: '选项字典', icon: 'Collection', perm: 'settings:read' } },
   { path: '/users', name: 'users', component: UserList, meta: { title: '用户管理', icon: 'User', perm: 'user:read' } },
   { path: '/roles', name: 'roles', component: RoleList, meta: { title: '角色权限', icon: 'Avatar', perm: 'role:read' } },
   { path: '/tenants', name: 'tenants', component: TenantList, meta: { title: '租户管理', icon: 'OfficeBuilding', perm: 'tenant:read' } }

@@ -3,7 +3,7 @@
     <div class="am-page-head">
       <div>
         <h2 class="am-page-title">模型配置</h2>
-        <p class="am-page-desc">管理大模型厂家与模型规格。模型与上下文大小由系统在调用 dsh 时通过 patch 层注入。</p>
+        <p class="am-page-desc">厂家只配接入信息；输入/输出上下文在每个模型上设置，调用 dsh 时通过 patch 注入。</p>
       </div>
     </div>
 
@@ -105,27 +105,19 @@
     <el-dialog v-model="providerDialog" :title="providerForm.id ? '编辑厂家' : '新增厂家'" width="560" class="am-dialog">
       <p class="am-dialog-desc">厂家对接 OpenAI 兼容 API，API Key 加密存储。</p>
       <el-form :model="providerForm" label-position="top" class="am-form">
-        <el-form-item label="厂家名称"><el-input v-model="providerForm.name" placeholder="如：DeepSeek 官方" /></el-form-item>
-        <el-form-item label="标识 key">
-          <el-input v-model="providerForm.key" placeholder="传给 dsh 的 provider 标识，如 deepseek-official" />
-        </el-form-item>
-        <el-form-item label="类型 kind">
-          <el-select v-model="providerForm.kind" allow-create filterable default-first-option style="width:100%">
-            <el-option v-for="k in kinds" :key="k" :label="k" :value="k" />
+        <el-form-item label="类型">
+          <el-select v-model="providerForm.kind" style="width:100%" @change="onProviderKind">
+            <el-option v-for="p in dict.providerPresets()" :key="p.kind" :label="p.name" :value="p.kind" />
           </el-select>
         </el-form-item>
-        <el-form-item label="Base URL"><el-input v-model="providerForm.base_url" /></el-form-item>
+        <el-form-item label="厂家名称"><el-input v-model="providerForm.name" placeholder="展示名称" /></el-form-item>
+        <el-form-item label="标识 key">
+          <el-input v-model="providerForm.key" placeholder="传给 dsh 的 provider 标识" />
+        </el-form-item>
+        <el-form-item label="Base URL"><el-input v-model="providerForm.base_url" placeholder="选类型后自动填，自定义可改" /></el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="providerForm.api_key" type="password" show-password placeholder="留空则使用 dsh 自身凭证" />
         </el-form-item>
-        <div class="am-form-grid">
-          <el-form-item label="输入上下文上限（tokens）">
-            <el-input-number v-model="providerForm.max_input_context" :min="0" :step="1000" style="width:100%" />
-          </el-form-item>
-          <el-form-item label="输出上下文上限（tokens）">
-            <el-input-number v-model="providerForm.max_output_context" :min="0" :step="1000" style="width:100%" />
-          </el-form-item>
-        </div>
         <el-form-item label="备注"><el-input v-model="providerForm.remark" /></el-form-item>
         <el-form-item label="启用"><el-switch v-model="providerForm.enabled" /></el-form-item>
       </el-form>
@@ -146,7 +138,10 @@
             </el-select>
           </el-form-item>
           <el-form-item label="模型标识 slug">
-            <el-input v-model="modelForm.slug" placeholder="如 deepseek-v4-flash" />
+            <el-select v-model="modelForm.slug" filterable allow-create default-first-option style="width:100%"
+              placeholder="选择或输入官方模型名" @change="onSlugChange">
+              <el-option v-for="s in slugOptions" :key="s" :label="s" :value="s" />
+            </el-select>
           </el-form-item>
         </div>
         <el-form-item label="模型名称"><el-input v-model="modelForm.name" placeholder="展示用名称" /></el-form-item>
@@ -187,7 +182,11 @@
               </div>
             </template>
             <el-form-item label="最大推理轮次"><el-input-number v-model="modelForm.max_turns" :min="1" :max="1000" /></el-form-item>
-            <el-form-item label="温度"><el-input v-model="modelForm.temperature" placeholder="留空使用模型默认" /></el-form-item>
+            <el-form-item label="温度">
+              <el-select v-model="modelForm.temperature" style="width:100%">
+                <el-option v-for="o in tempOptions" :key="o.value || 'default'" :label="o.label" :value="o.value" />
+              </el-select>
+            </el-form-item>
             <el-form-item label="额外参数">
               <el-input v-model="extraText" type="textarea" :rows="3"
                 placeholder='JSON，会合并进 dsh patch 配置，如 {"topP": 0.9}' />
@@ -213,8 +212,7 @@ import { listLLMConfig, createProvider, updateProvider, deleteProvider, createMo
 import { formatTokens } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { EditPen, Delete, InfoFilled } from '@element-plus/icons-vue'
-
-const kinds = ['deepseek', 'openai', 'anthropic', 'gemini', 'qwen', 'zhipu', 'moonshot', 'doubao', 'custom']
+import { useDicts } from '@/composables/useDicts'
 
 // ===== 长度档位池（1K = 1024 tokens；个别为厂商十进制标称值，括号内为精确 tokens）=====
 const LEN_POOL = [
@@ -285,6 +283,7 @@ function matchSpec(slug, providerKind) {
 }
 
 // ===== state =====
+const dict = useDicts()
 const providers = ref([])
 const models = ref([])
 const settings = ref({})
@@ -292,7 +291,7 @@ const current = ref(null)
 
 const providerDialog = ref(false)
 const modelDialog = ref(false)
-const providerForm = ref({ enabled: true, max_input_context: 1000000, max_output_context: 65536 })
+const providerForm = ref({ enabled: true, kind: 'deepseek' })
 const modelForm = ref({ enabled: true, max_turns: 128, input_context: 131072, output_context: 65536 })
 const extraText = ref('')
 
@@ -302,6 +301,11 @@ const providerModelCount = pid => models.value.filter(m => m.provider_id === pid
 
 const modelProviderKind = computed(() =>
   providers.value.find(p => p.id === modelForm.value.provider_id)?.kind || current.value?.kind || '')
+const slugOptions = computed(() => dict.slugsForKind(modelProviderKind.value))
+const tempOptions = computed(() => dict.options('temperature').map(o => ({
+  value: o.value === 'default' ? '' : o.value,
+  label: o.label
+})))
 
 const specInfo = computed(() => matchSpec(modelForm.value.slug, modelProviderKind.value))
 const currentSpecLabel = computed(() => {
@@ -376,15 +380,41 @@ async function load() {
 
 function onSelectProvider(row) { current.value = row }
 
+function onProviderKind(kind) {
+  const preset = dict.providerPresets().find(p => p.kind === kind)
+  if (!preset) return
+  if (!providerForm.value.id) {
+    providerForm.value.name = preset.name
+    providerForm.value.key = preset.key
+    providerForm.value.base_url = preset.base_url
+  } else if (!providerForm.value.base_url) {
+    providerForm.value.base_url = preset.base_url
+  }
+}
+
 function openProvider() {
-  providerForm.value = { enabled: true, max_input_context: 1000000, max_output_context: 65536, kind: 'openai' }
+  const preset = dict.providerPresets()[0] || { kind: 'custom', name: '', key: '', base_url: '' }
+  providerForm.value = {
+    enabled: true, kind: preset.kind, name: preset.name, key: preset.key, base_url: preset.base_url
+  }
   providerDialog.value = true
 }
-function editProvider(row) { providerForm.value = { ...row, api_key: '' }; providerDialog.value = true }
+function editProvider(row) {
+  providerForm.value = {
+    id: row.id, name: row.name, key: row.key, kind: row.kind, base_url: row.base_url,
+    remark: row.remark, enabled: row.enabled, api_key: ''
+  }
+  providerDialog.value = true
+}
 
 async function submitProvider() {
-  if (providerForm.value.id) await updateProvider(providerForm.value.id, providerForm.value)
-  else await createProvider(providerForm.value)
+  const payload = {
+    name: providerForm.value.name, key: providerForm.value.key, kind: providerForm.value.kind,
+    base_url: providerForm.value.base_url || '', remark: providerForm.value.remark || '',
+    enabled: providerForm.value.enabled !== false, api_key: providerForm.value.api_key || ''
+  }
+  if (providerForm.value.id) await updateProvider(providerForm.value.id, payload)
+  else await createProvider(payload)
   ElMessage.success('已保存')
   providerDialog.value = false
   load()
@@ -396,13 +426,35 @@ async function removeProvider(row) {
   load()
 }
 
+function onSlugChange(slug) {
+  const slugs = dict.slugsForKind(modelProviderKind.value)
+  if (!modelForm.value.name || slugs.includes(modelForm.value.name)) {
+    modelForm.value.name = slug
+  }
+}
+
 function openModel() {
-  modelForm.value = { enabled: true, max_turns: 128, input_context: 131072, output_context: 65536, provider_id: current.value?.id }
+  const slugs = dict.slugsForKind(current.value?.kind)
+  modelForm.value = {
+    enabled: true, max_turns: 128, input_context: 131072, output_context: 65536,
+    provider_id: current.value?.id, slug: slugs[0] || '', name: slugs[0] || '', temperature: ''
+  }
   extraText.value = ''
   modelDialog.value = true
 }
 function editModel(row) {
-  modelForm.value = { ...row }
+  modelForm.value = {
+    id: row.id,
+    provider_id: row.provider_id,
+    name: row.name,
+    slug: row.slug,
+    input_context: row.input_context,
+    output_context: row.output_context,
+    max_turns: row.max_turns,
+    temperature: row.temperature,
+    enabled: row.enabled,
+    is_default: row.is_default
+  }
   try {
     const o = typeof row.extra_params === 'string' ? JSON.parse(row.extra_params) : row.extra_params
     extraText.value = o && Object.keys(o).length ? JSON.stringify(o, null, 2) : ''
@@ -410,14 +462,33 @@ function editModel(row) {
   modelDialog.value = true
 }
 
-async function submitModel() {
-  const payload = { ...modelForm.value }
-  if (extraText.value.trim()) {
-    try { payload.extra_params = JSON.parse(extraText.value) } catch {
-      ElMessage.error('额外参数不是合法 JSON'); return
-    }
+function modelPayload() {
+  const payload = {
+    provider_id: modelForm.value.provider_id,
+    name: modelForm.value.name,
+    slug: modelForm.value.slug,
+    input_context: Number(modelForm.value.input_context),
+    output_context: Number(modelForm.value.output_context),
+    max_turns: Number(modelForm.value.max_turns) || 128,
+    temperature: modelForm.value.temperature || '',
+    enabled: !!modelForm.value.enabled,
+    is_default: !!modelForm.value.is_default
   }
-  if (payload.id) await updateModel(payload.id, payload)
+  if (extraText.value.trim()) {
+    payload.extra_params = JSON.parse(extraText.value)
+  }
+  return payload
+}
+
+async function submitModel() {
+  let payload
+  try {
+    payload = modelPayload()
+  } catch {
+    ElMessage.error('额外参数不是合法 JSON')
+    return
+  }
+  if (modelForm.value.id) await updateModel(modelForm.value.id, payload)
   else await createModel(payload)
   ElMessage.success('已保存')
   modelDialog.value = false
@@ -435,6 +506,7 @@ async function removeModel(row) {
 
 onMounted(async () => {
   try { settings.value = (await getSettings()).data || {} } catch { /* ignore */ }
+  await dict.load()
   load()
 })
 </script>

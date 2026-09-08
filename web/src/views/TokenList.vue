@@ -126,8 +126,12 @@ async function load() {
 }
 
 async function submit() {
-  const payload = { ...form.value }
-  if (payload.expires_at) payload.expires_at = new Date(payload.expires_at).toISOString()
+  const payload = {
+    project_id: form.value.project_id,
+    name: form.value.name,
+    allow_cidr: form.value.allow_cidr || ''
+  }
+  if (form.value.expires_at) payload.expires_at = new Date(form.value.expires_at).toISOString()
   const r = await createToken(payload)
   plainTokens.value[r.data.token.id] = r.data.plain_token
   dialog.value = false

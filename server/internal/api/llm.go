@@ -2,8 +2,10 @@ package api
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,7 +27,6 @@ func (h *Handlers) ListProviders(c *gin.Context) {
 		key, _ := h.crypt.Decrypt(p.APIKeyEnc)
 		out = append(out, gin.H{
 			"id": p.ID, "name": p.Name, "key": p.Key, "kind": p.Kind, "base_url": p.BaseURL,
-			"max_input_context": p.MaxInputContext, "max_output_context": p.MaxOutputContext,
 			"enabled": p.Enabled, "remark": p.Remark, "api_key_masked": maskKey(key),
 			"created_at": p.CreatedAt, "updated_at": p.UpdatedAt,
 		})
@@ -37,15 +38,13 @@ func (h *Handlers) ListProviders(c *gin.Context) {
 
 func (h *Handlers) CreateProvider(c *gin.Context) {
 	var in struct {
-		Name             string `json:"name"`
-		Key              string `json:"key"`
-		Kind             string `json:"kind"`
-		BaseURL          string `json:"base_url"`
-		APIKey           string `json:"api_key"`
-		MaxInputContext  int64  `json:"max_input_context"`
-		MaxOutputContext int64  `json:"max_output_context"`
-		Enabled          *bool  `json:"enabled"`
-		Remark           string `json:"remark"`
+		Name    string `json:"name"`
+		Key     string `json:"key"`
+		Kind    string `json:"kind"`
+		BaseURL string `json:"base_url"`
+		APIKey  string `json:"api_key"`
+		Enabled *bool  `json:"enabled"`
+		Remark  string `json:"remark"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		BadRequest(c, err)
@@ -57,7 +56,6 @@ func (h *Handlers) CreateProvider(c *gin.Context) {
 	}
 	p := &model.Provider{
 		Name: in.Name, Key: in.Key, Kind: in.Kind, BaseURL: in.BaseURL,
-		MaxInputContext: in.MaxInputContext, MaxOutputContext: in.MaxOutputContext,
 		Remark: in.Remark, Enabled: true,
 	}
 	if in.Enabled != nil {
@@ -70,12 +68,6 @@ func (h *Handlers) CreateProvider(c *gin.Context) {
 			return
 		}
 		p.APIKeyEnc = enc
-	}
-	if p.MaxInputContext == 0 {
-		p.MaxInputContext = 1000000
-	}
-	if p.MaxOutputContext == 0 {
-		p.MaxOutputContext = 65536
 	}
 	if err := h.db.Create(p).Error; err != nil {
 		BadRequest(c, err)
@@ -114,12 +106,6 @@ func (h *Handlers) UpdateProvider(c *gin.Context) {
 	}
 	if v, ok := in["enabled"].(bool); ok {
 		p.Enabled = v
-	}
-	if v, ok := in["max_input_context"].(float64); ok {
-		p.MaxInputContext = int64(v)
-	}
-	if v, ok := in["max_output_context"].(float64); ok {
-		p.MaxOutputContext = int64(v)
 	}
 	if v, ok := in["api_key"].(string); ok && v != "" {
 		enc, err := h.crypt.Encrypt(v)
@@ -194,6 +180,8 @@ func (h *Handlers) CreateModel(c *gin.Context) {
 		BadRequest(c, "厂家、模型名称与模型标识不能为空")
 		return
 	}
+	m.Provider = nil
+	m.ID = 0
 	if m.InputContext <= 0 {
 		m.InputContext = 131072
 	}
@@ -226,15 +214,142 @@ func (h *Handlers) UpdateModel(c *gin.Context) {
 		BadRequest(c, err)
 		return
 	}
-	delete(body, "id")
-	if d, ok := body["is_default"].(bool); ok && d {
+	updates, err := sanitizeModelUpdates(body)
+	if err != nil {
+		BadRequest(c, err)
+		return
+	}
+	if d, ok := updates["is_default"].(bool); ok && d {
 		h.db.Model(&model.LLMModel{}).Where("1=1").Update("is_default", false)
 	}
-	if err := h.db.Model(&m).Updates(body).Error; err != nil {
+	if len(updates) == 0 {
+		OK(c, m)
+		return
+	}
+	if err := h.db.Model(&m).Updates(updates).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
 	OK(c, m)
+}
+
+func sanitizeModelUpdates(body map[string]any) (map[string]any, error) {
+	out := map[string]any{}
+	if v, ok := body["provider_id"]; ok {
+		id, err := asUint(v)
+		if err != nil {
+			return nil, fmt.Errorf("provider_id 非法")
+		}
+		if id != 0 {
+			out["provider_id"] = id
+		}
+	}
+	if v, ok := asTrimmedString(body["name"]); ok && v != "" {
+		out["name"] = v
+	}
+	if v, ok := asTrimmedString(body["slug"]); ok && v != "" {
+		out["slug"] = v
+	}
+	if v, ok := asTrimmedString(body["temperature"]); ok {
+		out["temperature"] = v
+	}
+	if v, ok := asTrimmedString(body["remark"]); ok {
+		out["remark"] = v
+	}
+	if v, ok := body["enabled"].(bool); ok {
+		out["enabled"] = v
+	}
+	if v, ok := body["is_default"].(bool); ok {
+		out["is_default"] = v
+	}
+	if _, ok := body["input_context"]; ok {
+		n, err := asInt64(body["input_context"])
+		if err != nil {
+			return nil, fmt.Errorf("input_context 非法")
+		}
+		out["input_context"] = n
+	}
+	if _, ok := body["output_context"]; ok {
+		n, err := asInt64(body["output_context"])
+		if err != nil {
+			return nil, fmt.Errorf("output_context 非法")
+		}
+		out["output_context"] = n
+	}
+	if _, ok := body["max_turns"]; ok {
+		n, err := asInt64(body["max_turns"])
+		if err != nil {
+			return nil, fmt.Errorf("max_turns 非法")
+		}
+		out["max_turns"] = int(n)
+	}
+	if raw, ok := body["extra_params"]; ok {
+		js, err := extraParamsJSON(raw)
+		if err != nil {
+			return nil, err
+		}
+		out["extra_params"] = js
+	}
+	return out, nil
+}
+
+func extraParamsJSON(raw any) (model.JSON, error) {
+	switch v := raw.(type) {
+	case nil:
+		return model.JSON("{}"), nil
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" {
+			return model.JSON("{}"), nil
+		}
+		if !json.Valid([]byte(s)) {
+			return nil, fmt.Errorf("extra_params 不是合法 JSON")
+		}
+		return model.JSON(s), nil
+	default:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("extra_params 非法: %w", err)
+		}
+		return model.JSON(b), nil
+	}
+}
+
+func asTrimmedString(v any) (string, bool) {
+	s, ok := v.(string)
+	if !ok {
+		return "", false
+	}
+	return strings.TrimSpace(s), true
+}
+
+func asInt64(v any) (int64, error) {
+	switch n := v.(type) {
+	case float64:
+		return int64(n), nil
+	case int64:
+		return n, nil
+	case int:
+		return int64(n), nil
+	case json.Number:
+		return n.Int64()
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return 0, fmt.Errorf("empty")
+		}
+		return strconv.ParseInt(s, 10, 64)
+	default:
+		return 0, fmt.Errorf("unsupported")
+	}
+}
+
+func asUint(v any) (uint, error) {
+	n, err := asInt64(v)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("invalid")
+	}
+	return uint(n), nil
 }
 
 func (h *Handlers) DeleteModel(c *gin.Context) {
@@ -340,15 +455,7 @@ func (h *Handlers) UpdateToken(c *gin.Context) {
 		NotFound(c, "令牌不存在")
 		return
 	}
-	var body map[string]any
-	if err := c.ShouldBindJSON(&body); err != nil {
-		BadRequest(c, err)
-		return
-	}
-	delete(body, "id")
-	delete(body, "token_hash")
-	if err := h.tdb(c).Model(&t).Updates(body).Error; err != nil {
-		BadRequest(c, err)
+	if !h.saveUpdates(c, h.tdb(c), &t, "name", "enabled", "expires_at", "allow_cidr") {
 		return
 	}
 	OK(c, t)
@@ -402,6 +509,7 @@ func (h *Handlers) CreateRule(c *gin.Context) {
 		BadRequest(c, "action 只能是 fix 或 ignore")
 		return
 	}
+	r.Project = nil
 	if err := h.db.Create(&r).Error; err != nil {
 		BadRequest(c, err)
 		return
@@ -420,14 +528,11 @@ func (h *Handlers) UpdateRule(c *gin.Context) {
 		NotFound(c, "规则不存在")
 		return
 	}
-	var body map[string]any
-	if err := c.ShouldBindJSON(&body); err != nil {
-		BadRequest(c, err)
-		return
-	}
-	delete(body, "id")
-	if err := h.db.Model(&r).Updates(body).Error; err != nil {
-		BadRequest(c, err)
+	if !h.saveUpdates(c, h.db, &r,
+		"name", "enabled", "priority", "levels", "sources", "keywords", "all_keywords",
+		"exclude_keywords", "exclude_sources", "pattern", "min_count", "window_sec",
+		"cooldown_sec", "action", "repo_ids", "model_id", "fix_mode", "max_retries",
+		"prompt_template", "description") {
 		return
 	}
 	OK(c, r)

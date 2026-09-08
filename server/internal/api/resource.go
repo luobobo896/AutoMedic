@@ -98,14 +98,9 @@ func (h *Handlers) UpdateProject(c *gin.Context) {
 		NotFound(c, "项目不存在")
 		return
 	}
-	var body map[string]any
-	if err := c.ShouldBindJSON(&body); err != nil {
-		BadRequest(c, err)
-		return
-	}
-	delete(body, "id")
-	if err := h.tdb(c).Model(&p).Updates(body).Error; err != nil {
-		BadRequest(c, err)
+	if !h.saveUpdates(c, h.tdb(c), &p,
+		"name", "description", "fix_mode", "default_model_id", "default_review_model_id",
+		"release_hook", "enabled", "context") {
 		return
 	}
 	OK(c, p)
@@ -160,6 +155,7 @@ func (h *Handlers) CreateRepo(c *gin.Context) {
 	if r.Branch == "" {
 		r.Branch = "main"
 	}
+	r.Project, r.Credential, r.Model, r.ReviewModel = nil, nil, nil, nil
 	tid, ok := h.requireTenantOfProject(c, r.ProjectID)
 	if !ok {
 		return
@@ -197,14 +193,9 @@ func (h *Handlers) UpdateRepo(c *gin.Context) {
 		NotFound(c, "仓库不存在")
 		return
 	}
-	var body map[string]any
-	if err := c.ShouldBindJSON(&body); err != nil {
-		BadRequest(c, err)
-		return
-	}
-	delete(body, "id")
-	if err := h.tdb(c).Model(&r).Updates(body).Error; err != nil {
-		BadRequest(c, err)
+	if !h.saveUpdates(c, h.tdb(c), &r,
+		"name", "url", "branch", "code_paths", "language", "credential_id",
+		"model_id", "review_model_id", "auto_push", "enabled") {
 		return
 	}
 	OK(c, r)

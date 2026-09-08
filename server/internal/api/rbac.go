@@ -558,15 +558,7 @@ func (h *Handlers) UpdateTenant(c *gin.Context) {
 		NotFound(c, "租户不存在")
 		return
 	}
-	var body map[string]any
-	if err := c.ShouldBindJSON(&body); err != nil {
-		BadRequest(c, err)
-		return
-	}
-	delete(body, "id")
-	delete(body, "key")
-	if err := h.db.Model(&t).Updates(body).Error; err != nil {
-		BadRequest(c, err)
+	if !h.saveUpdates(c, h.db, &t, "name", "status", "remark") {
 		return
 	}
 	OK(c, t)

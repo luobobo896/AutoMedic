@@ -60,24 +60,52 @@
         </el-form-item>
         <el-form-item label="规则名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="优先级"><el-input-number v-model="form.priority" :min="0" :max="999" /></el-form-item>
-        <el-form-item label="日志级别"><el-input v-model="form.levels" placeholder="逗号分隔，如 fatal,error；留空不限" /></el-form-item>
+        <el-form-item label="日志级别">
+          <el-select v-model="form.levels" multiple clearable collapse-tags style="width:100%" placeholder="留空不限">
+            <el-option v-for="o in dict.options('log_level')" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="命中关键字">
-          <el-input v-model="form.keywords" placeholder="任一命中即触发，如 panic,nil pointer,index out of range" />
+          <el-select v-model="form.keywords" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%" placeholder="勾选或输入后回车">
+            <el-option v-for="k in dict.values('hit_keyword')" :key="k" :label="k" :value="k" />
+          </el-select>
         </el-form-item>
-        <el-form-item label="必须全命中"><el-input v-model="form.all_keywords" placeholder="逗号分隔，全部命中才触发（可选）" /></el-form-item>
+        <el-form-item label="必须全命中">
+          <el-select v-model="form.all_keywords" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%" placeholder="可选">
+            <el-option v-for="k in dict.values('hit_keyword')" :key="'all-'+k" :label="k" :value="k" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="排除关键字">
-          <el-input v-model="form.exclude_keywords"
-            placeholder="命中任一则跳过修复，如 余额不足,权限不足,参数校验失败,第三方,上游超时,限流,用户取消" />
+          <el-select v-model="form.exclude_keywords" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%" placeholder="业务拒绝 / 第三方故障等">
+            <el-option v-for="k in dict.values('exclude_keyword')" :key="k" :label="k" :value="k" />
+          </el-select>
         </el-form-item>
-        <el-form-item label="来源白名单"><el-input v-model="form.sources" placeholder="逗号分隔；留空不限" /></el-form-item>
-        <el-form-item label="排除来源"><el-input v-model="form.exclude_sources" placeholder="如 biz-reject" /></el-form-item>
+        <el-form-item label="来源白名单">
+          <el-select v-model="form.sources" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%" placeholder="留空不限">
+            <el-option v-for="s in dict.values('event_source')" :key="s" :label="s" :value="s" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="排除来源">
+          <el-select v-model="form.exclude_sources" multiple filterable allow-create default-first-option collapse-tags
+            style="width:100%" placeholder="如 biz-reject">
+            <el-option v-for="s in dict.values('event_source')" :key="'ex-'+s" :label="s" :value="s" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="正则"><el-input v-model="form.pattern" placeholder="可选，命中才触发" /></el-form-item>
         <el-form-item label="频次阈值">
           <el-input-number v-model="form.min_count" :min="1" /> 次 /
-          <el-input-number v-model="form.window_sec" :min="60" :step="60" /> 秒
+          <el-select v-model="form.window_sec" style="width:140px">
+            <el-option v-for="o in dict.numberOptions('window_sec')" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
         </el-form-item>
         <el-form-item label="冷却时间">
-          <el-input-number v-model="form.cooldown_sec" :min="0" :step="60" /> 秒
+          <el-select v-model="form.cooldown_sec" style="width:160px">
+            <el-option v-for="o in dict.numberOptions('cooldown_sec')" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
         </el-form-item>
         <el-form-item label="动作">
           <el-radio-group v-model="form.action">
@@ -117,10 +145,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { listRules, createRule, updateRule, deleteRule, listProjects, listRepos, listModels } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useDicts, splitCSV, joinCSV } from '@/composables/useDicts'
 
+const dict = useDicts()
 const list = ref([])
 const projects = ref([])
 const repos = ref([])
@@ -132,7 +162,9 @@ const repoIds = ref([])
 
 const defaultForm = () => ({
   enabled: true, action: 'fix', priority: 0, min_count: 1, window_sec: 300,
-  cooldown_sec: 600, max_retries: 2, fix_mode: '', levels: 'fatal,error'
+  cooldown_sec: 600, max_retries: 2, fix_mode: '',
+  levels: ['fatal', 'error'], keywords: [], all_keywords: [],
+  exclude_keywords: [], sources: [], exclude_sources: []
 })
 
 async function load() {
@@ -154,14 +186,35 @@ function openCreate() {
 }
 
 function openEdit(row) {
-  form.value = { ...row, fix_mode: row.fix_mode || '' }
+  form.value = {
+    id: row.id, project_id: row.project_id, name: row.name, enabled: row.enabled, priority: row.priority,
+    levels: splitCSV(row.levels), sources: splitCSV(row.sources), keywords: splitCSV(row.keywords),
+    all_keywords: splitCSV(row.all_keywords), exclude_keywords: splitCSV(row.exclude_keywords),
+    exclude_sources: splitCSV(row.exclude_sources), pattern: row.pattern,
+    min_count: row.min_count, window_sec: row.window_sec, cooldown_sec: row.cooldown_sec,
+    action: row.action, model_id: row.model_id, fix_mode: row.fix_mode || '',
+    max_retries: row.max_retries, prompt_template: row.prompt_template, description: row.description
+  }
   repoIds.value = (row.repo_ids || '').split(',').filter(Boolean).map(Number)
   dialog.value = true
 }
 
+function rulePayload(f, ids) {
+  return {
+    project_id: f.project_id, name: f.name, enabled: f.enabled !== false, priority: f.priority || 0,
+    levels: joinCSV(f.levels), sources: joinCSV(f.sources), keywords: joinCSV(f.keywords),
+    all_keywords: joinCSV(f.all_keywords), exclude_keywords: joinCSV(f.exclude_keywords),
+    exclude_sources: joinCSV(f.exclude_sources), pattern: f.pattern || '',
+    min_count: f.min_count, window_sec: f.window_sec, cooldown_sec: f.cooldown_sec,
+    action: f.action || 'fix', repo_ids: (ids || []).join(','),
+    model_id: f.model_id || null, fix_mode: f.fix_mode || '',
+    max_retries: f.max_retries, prompt_template: f.prompt_template || '', description: f.description || ''
+  }
+}
+
 async function submit() {
-  const payload = { ...form.value, repo_ids: repoIds.value.join(',') }
-  if (payload.id) await updateRule(payload.id, payload)
+  const payload = rulePayload(form.value, repoIds.value)
+  if (form.value.id) await updateRule(form.value.id, payload)
   else await createRule(payload)
   ElMessage.success('已保存')
   dialog.value = false
@@ -181,7 +234,7 @@ async function remove(row) {
 }
 
 onMounted(async () => {
-  const [p, r, m] = await Promise.all([listProjects({ page_size: 100 }), listRepos({ page_size: 200 }), listModels()])
+  const [p, r, m] = await Promise.all([listProjects({ page_size: 100 }), listRepos({ page_size: 200 }), listModels(), dict.load()])
   projects.value = p.data?.list || []
   repos.value = r.data?.list || []
   models.value = m.data || []

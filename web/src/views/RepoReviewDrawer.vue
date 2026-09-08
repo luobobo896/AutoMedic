@@ -9,11 +9,15 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="form.mode === 'review'" label="基线 from">
-          <el-input v-model="form.from" placeholder="例如 main" style="width:220px" />
+          <el-select v-model="form.from" filterable allow-create default-first-option style="width:220px">
+            <el-option v-for="b in fromOptions" :key="b" :label="b" :value="b" />
+          </el-select>
           <span class="am-text-dim" style="margin-left:8px">对比当前分支 {{ repo?.branch || 'HEAD' }}</span>
         </el-form-item>
         <el-form-item v-if="form.mode === 'scan'" label="路径">
-          <el-input v-model="form.path" placeholder="例如 internal/" style="width:280px" />
+          <el-select v-model="form.path" filterable allow-create default-first-option style="width:280px" placeholder="选择或输入路径">
+            <el-option v-for="p in pathOptions" :key="p" :label="p" :value="p" />
+          </el-select>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="starting" :disabled="running" @click="start">开始审查</el-button>
@@ -56,6 +60,7 @@
 import { computed, ref, watch } from 'vue'
 import { startRepoReview, getReviewJob, fixReviewJob } from '@/api'
 import { ElMessage } from 'element-plus'
+import { useDicts, splitCSV } from '@/composables/useDicts'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -67,8 +72,17 @@ const visible = computed({
   get: () => props.modelValue,
   set: (v) => emit('update:modelValue', v)
 })
+const dict = useDicts()
 const title = computed(() => (props.repo ? `审查 · ${props.repo.name}` : '审查'))
 const form = ref({ mode: 'review', from: 'main', path: '' })
+const fromOptions = computed(() => {
+  const extra = [props.repo?.branch, 'HEAD'].filter(Boolean)
+  return [...new Set([...dict.values('git_branch'), ...extra])]
+})
+const pathOptions = computed(() => {
+  const extra = splitCSV(props.repo?.code_paths)
+  return [...new Set([...dict.values('code_path'), ...extra])]
+})
 const starting = ref(false)
 const fixing = ref(false)
 const job = ref(null)
@@ -86,7 +100,8 @@ const statusText = computed(() => {
   return ({ pending: '排队', running: '审查中', success: '完成', failed: '失败' })[s] || s || ''
 })
 
-watch(() => [visible.value, props.repo?.id], () => {
+watch(() => [visible.value, props.repo?.id], async () => {
+  await dict.load()
   stopPoll()
   job.value = null
   selected.value = []
@@ -94,8 +109,8 @@ watch(() => [visible.value, props.repo?.id], () => {
   if (visible.value && props.repo) {
     form.value = {
       mode: 'review',
-      from: 'main',
-      path: props.repo.code_paths ? String(props.repo.code_paths).split(',')[0].trim() : ''
+      from: props.repo.branch === 'master' ? 'master' : 'main',
+      path: splitCSV(props.repo.code_paths)[0] || 'internal/'
     }
   }
 })

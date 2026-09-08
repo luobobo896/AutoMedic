@@ -149,6 +149,10 @@ func NewRouter(d *Deps) *gin.Engine {
 		// 配置（dsh / git 运行参数）
 		authed.GET("/settings", P(model.PermSettingsRead), h.GetSettings)
 		authed.PUT("/settings", P(model.PermSettingsUpdate), h.UpdateSettings)
+		authed.GET("/dicts", P(model.PermSettingsRead), h.ListDicts)
+		authed.POST("/dicts", P(model.PermSettingsUpdate), h.CreateDict)
+		authed.PUT("/dicts/:id", P(model.PermSettingsUpdate), h.UpdateDict)
+		authed.DELETE("/dicts/:id", P(model.PermSettingsUpdate), h.DeleteDict)
 
 		// 用户与角色（租户级）
 		authed.GET("/users", P(model.PermUserRead), h.ListUsers)

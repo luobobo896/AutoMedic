@@ -128,9 +128,13 @@ function edit(row) {
 }
 
 async function submit() {
-  const payload = { ...form.value }
-  if (payload.id && !payload.password) delete payload.password
-  if (payload.id) await updateUser(payload.id, payload)
+  const payload = {
+    username: form.value.username, display_name: form.value.display_name, email: form.value.email,
+    tenant_id: form.value.tenant_id, status: form.value.status, is_super: !!form.value.is_super,
+    role_ids: form.value.role_ids || []
+  }
+  if (form.value.password) payload.password = form.value.password
+  if (form.value.id) await updateUser(form.value.id, payload)
   else await createUser(payload)
   ElMessage.success('已保存')
   dialog.value = false

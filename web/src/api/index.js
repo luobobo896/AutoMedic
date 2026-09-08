@@ -183,6 +183,10 @@ export const statsGroup = (params) => http.get('/v1/stats/group', { params })
 // ---------- 设置 ----------
 export const getSettings = () => http.get('/v1/settings')
 export const updateSettings = (data) => http.put('/v1/settings', data)
+export const listDicts = (params) => http.get('/v1/dicts', { params })
+export const createDict = (data) => http.post('/v1/dicts', data)
+export const updateDict = (id, data) => http.put(`/v1/dicts/${id}`, data)
+export const deleteDict = (id) => http.delete(`/v1/dicts/${id}`)
 
 export function taskWSURL(taskId) {
   const base = import.meta.env.VITE_WS_BASE

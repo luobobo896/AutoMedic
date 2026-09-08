@@ -40,6 +40,15 @@ func (j JSON) MarshalJSON() ([]byte, error) {
 	return j, nil
 }
 
+func (j *JSON) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*j = JSON("{}")
+		return nil
+	}
+	*j = JSON(append([]byte(nil), b...))
+	return nil
+}
+
 func (j JSON) Unmarshal(dst any) error {
 	if len(j) == 0 {
 		return nil
@@ -201,11 +210,8 @@ type Provider struct {
 	BaseURL string `gorm:"size:512" json:"base_url"`
 	// 加密存储的 API Key
 	APIKeyEnc string `gorm:"type:text" json:"-"`
-	// 支持的最大输入上下文 token（厂家级上限）
-	MaxInputContext  int64  `json:"max_input_context"`
-	MaxOutputContext int64  `json:"max_output_context"`
-	Enabled          bool   `gorm:"default:true" json:"enabled"`
-	Remark           string `gorm:"size:512" json:"remark"`
+	Enabled   bool   `gorm:"default:true" json:"enabled"`
+	Remark    string `gorm:"size:512" json:"remark"`
 }
 
 // LLMModel 模型：每个模型独立配置输入/输出上下文大小
@@ -406,7 +412,7 @@ func All() []any {
 		&Tenant{}, &User{}, &Role{}, &RolePermission{}, &UserRole{}, &AuthToken{},
 		&Project{}, &Repository{}, &Credential{}, &CredentialUsage{},
 		&Provider{}, &LLMModel{}, &IngestToken{}, &Event{}, &Rule{},
-		&Task{}, &TaskLog{}, &Setting{}, &ReviewJob{},
+		&Task{}, &TaskLog{}, &Setting{}, &ReviewJob{}, &DictItem{},
 	}
 }
 

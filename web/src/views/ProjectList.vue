@@ -120,9 +120,24 @@ function openEdit(row) {
   dialog.value = true
 }
 
+function projectPayload(f) {
+  return {
+    name: f.name,
+    key: f.key,
+    description: f.description || '',
+    fix_mode: f.fix_mode || 'semi',
+    default_model_id: f.default_model_id || null,
+    default_review_model_id: f.default_review_model_id || null,
+    release_hook: f.release_hook || '',
+    enabled: f.enabled !== false,
+    context: f.context || ''
+  }
+}
+
 async function submit() {
-  if (form.value.id) await updateProject(form.value.id, form.value)
-  else await createProject(form.value)
+  const payload = projectPayload(form.value)
+  if (form.value.id) await updateProject(form.value.id, payload)
+  else await createProject(payload)
   ElMessage.success('已保存')
   dialog.value = false
   load()

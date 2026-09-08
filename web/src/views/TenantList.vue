@@ -83,8 +83,13 @@ function edit(t) {
 }
 
 async function submit() {
-  if (form.value.id) await updateTenant(form.value.id, form.value)
-  else await createTenant(form.value)
+  const payload = {
+    name: form.value.name, key: form.value.key, remark: form.value.remark || '',
+    status: form.value.status || 'active', admin_username: form.value.admin_username,
+    admin_password: form.value.admin_password
+  }
+  if (form.value.id) await updateTenant(form.value.id, { name: payload.name, remark: payload.remark, status: payload.status })
+  else await createTenant(payload)
   ElMessage.success('已保存')
   dialog.value = false
   load()
