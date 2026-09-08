@@ -4,39 +4,25 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/automedic/automedic/internal/config"
 	"github.com/automedic/automedic/internal/model"
-	"github.com/glebarez/sqlite"
-	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-// Dialect 当前数据库方言：postgres | mysql | sqlite，供手写 SQL 做兼容分支
-var Dialect = "sqlite"
-
 func Open(cfg *config.Config) (*gorm.DB, error) {
-	var dialector gorm.Dialector
-	switch strings.ToLower(cfg.DB.Driver) {
-	case "postgres", "postgresql", "pg":
-		Dialect = "postgres"
-		dialector = postgres.Open(cfg.DB.DSN)
-	case "mysql":
-		Dialect = "mysql"
-		dialector = mysql.Open(cfg.DB.DSN)
-	case "sqlite", "sqlite3", "":
-		Dialect = "sqlite"
-		if dir := filepath.Dir(cfg.DB.DSN); dir != "" && dir != "." {
-			_ = os.MkdirAll(dir, 0o755)
-		}
-		dialector = sqlite.Open(cfg.DB.DSN)
-	default:
-		return nil, fmt.Errorf("unsupported db driver: %s", cfg.DB.Driver)
+	driver := strings.ToLower(strings.TrimSpace(cfg.DB.Driver))
+	if driver == "" {
+		driver = "postgres"
+	}
+	if driver != "postgres" && driver != "postgresql" && driver != "pg" {
+		return nil, fmt.Errorf("unsupported db driver %q: only postgres is supported", cfg.DB.Driver)
+	}
+	if strings.TrimSpace(cfg.DB.DSN) == "" {
+		return nil, errors.New("db.dsn is empty")
 	}
 
 	level := logger.Warn
@@ -49,7 +35,7 @@ func Open(cfg *config.Config) (*gorm.DB, error) {
 		level = logger.Info
 	}
 
-	db, err := gorm.Open(dialector, &gorm.Config{
+	db, err := gorm.Open(postgres.Open(cfg.DB.DSN), &gorm.Config{
 		Logger:          logger.Default.LogMode(level),
 		TranslateError:  true,
 		PrepareStmt:     false,
@@ -75,18 +61,11 @@ func Open(cfg *config.Config) (*gorm.DB, error) {
 	return db, nil
 }
 
-// AutoMigrate 建表并补齐索引；生产环境可改用 migrations/*.sql
+// AutoMigrate 建表并补齐索引；生产环境可改用 docs/database 脚本预建后仍可幂等执行。
 func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.All()...); err != nil {
 		return err
 	}
-	indexes := map[string][]string{
-		"tasks":     {"idx_tasks_status_created", "idx_tasks_project_created", "idx_tasks_repo_status"},
-		"task_logs": {"idx_task_logs_task_seq"},
-		"events":    {"idx_events_project_occurred", "idx_events_fingerprint"},
-	}
-	_ = indexes
-	// GORM 标签已覆盖主要索引，此处仅补充组合索引（SQLite/MySQL 均支持 IF NOT EXISTS 之外的幂等写法）
 	extra := []string{
 		"CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at)",
 		"CREATE INDEX IF NOT EXISTS idx_tasks_project_created ON tasks(project_id, created_at)",
@@ -97,14 +76,13 @@ func AutoMigrate(db *gorm.DB) error {
 	}
 	for _, sql := range extra {
 		if err := db.Exec(sql).Error; err != nil {
-			// 索引已存在或驱动不支持时忽略
 			slog.Debug("skip index", "sql", sql, "err", err)
 		}
 	}
 	return nil
 }
 
-// SeedDefault 初始化默认数据：内置厂家与模型、示例项目
+// SeedDefault 初始化默认数据：内置厂家与模型
 func SeedDefault(db *gorm.DB) error {
 	var count int64
 	db.Model(&model.Provider{}).Count(&count)

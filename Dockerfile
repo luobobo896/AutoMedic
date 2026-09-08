@@ -59,8 +59,8 @@ VOLUME ["/app/data"]
 EXPOSE 8080
 ENV AUTOMEDIC_SERVER_ADDR=:8080 \
     AUTOMEDIC_SERVER_WEB_DIR=/app/web/dist \
-    AUTOMEDIC_DB_DRIVER=sqlite \
-    AUTOMEDIC_DB_DSN=/app/data/automedic.db \
+    AUTOMEDIC_DB_DRIVER=postgres \
+    AUTOMEDIC_DB_DSN="host=postgres user=automedic password=automedic dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai" \
     AUTOMEDIC_DSH_BIN=/usr/local/bin/dsh \
     AUTOMEDIC_GIT_WORKSPACE_ROOT=/app/data/workspaces \
     AUTOMEDIC_SECURITY_SECRET_KEY_FILE=/app/data/.secret_key

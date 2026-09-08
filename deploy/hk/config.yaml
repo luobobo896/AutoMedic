@@ -9,8 +9,8 @@ server:
   write_timeout: 300
 
 db:
-  driver: "sqlite"
-  dsn: "/opt/automedic/data/automedic.db"
+  driver: "postgres"
+  dsn: "host=/var/run/postgresql user=automedic dbname=automedic sslmode=disable TimeZone=Asia/Shanghai"
   max_open: 50
   max_idle: 10
   log_level: "warn"

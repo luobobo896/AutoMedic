@@ -29,9 +29,8 @@ type ServerConfig struct {
 }
 
 type DBConfig struct {
-	Driver string `yaml:"driver"` // postgres | mysql | sqlite
-	DSN    string `yaml:"dsn"`    // postgres: host=127.0.0.1 user=automedic password=xxx dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai
-	//      mysql: user:pass@tcp(127.0.0.1:3306)/automedic?charset=utf8mb4&parseTime=True&loc=Local
+	Driver   string `yaml:"driver"` // 仅 postgres
+	DSN      string `yaml:"dsn"`    // host=127.0.0.1 user=automedic password=xxx dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai
 	MaxOpen  int    `yaml:"max_open"`
 	MaxIdle  int    `yaml:"max_idle"`
 	LogLevel string `yaml:"log_level"` // silent | error | warn | info

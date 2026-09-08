@@ -293,7 +293,7 @@ func (h *Handlers) StatsGroup(c *gin.Context) {
 	}
 	var out []row
 	q := h.tdb(c).Model(&model.Task{}).Where("tasks.created_at >= ?", from)
-	// 各分组维度的公共统计表达式（兼容 postgres / mysql / sqlite）
+	// 各分组维度的公共统计表达式
 	sums := fmt.Sprintf("%s as success, %s as failed, %s as ignored",
 		sumEq("tasks.status", "success"), sumEq("tasks.status", "failed"), sumEq("tasks.status", "ignored"))
 	avg := roundAvg("tasks.duration_ms")
@@ -354,7 +354,7 @@ func (h *Handlers) trend(from time.Time, pid, rid string, tenantID uint) ([]tren
 		Avg     float64
 	}
 	var rows []raw
-	// 按 created_at 日期分组；postgres 用 to_char，mysql/sqlite 用 substr 截取
+	// 按 created_at 日期分组
 	q := h.db.Model(&model.Task{}).
 		Select(fmt.Sprintf("%s as day, count(*) as total, %s as success, %s as failed, %s as ignored, %s as pending, COALESCE(avg(duration_ms),0) as avg",
 			dayExpr("created_at"),

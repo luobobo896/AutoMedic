@@ -23,7 +23,7 @@ type User struct {
 	Email        string `gorm:"size:128" json:"email"`
 	Status       string `gorm:"size:16;default:'active'" json:"status"` // active | disabled
 	// IsSuper 平台超级管理员：可跨租户管理，拥有全部权限
-	IsSuper    bool       `gorm:"default:false" json:"is_super"`
+	IsSuper     bool       `gorm:"default:false" json:"is_super"`
 	LastLoginAt *time.Time `json:"last_login_at"`
 
 	Tenant *Tenant `gorm:"foreignKey:TenantID" json:"tenant,omitempty"`
@@ -61,16 +61,16 @@ type UserRole struct {
 
 // AuthToken 刷新令牌：用于续期与登出失效
 type AuthToken struct {
-	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID     uint      `gorm:"index;not null" json:"user_id"`
-	JTI        string    `gorm:"size:64;uniqueIndex" json:"jti"`
-	RefreshHash string   `gorm:"size:128" json:"-"` // sha256(刷新令牌随机段)
-	RefreshTTL int64     `json:"refresh_ttl"`
-	ExpiresAt  time.Time `gorm:"index" json:"expires_at"`
-	Revoked    bool      `json:"revoked"`
-	UserAgent  string    `gorm:"size:256" json:"user_agent"`
-	IP         string    `gorm:"size:64" json:"ip"`
-	CreatedAt  time.Time `gorm:"index" json:"created_at"`
+	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID      uint      `gorm:"index;not null" json:"user_id"`
+	JTI         string    `gorm:"size:64;uniqueIndex" json:"jti"`
+	RefreshHash string    `gorm:"size:128" json:"-"` // sha256(刷新令牌随机段)
+	RefreshTTL  int64     `json:"refresh_ttl"`
+	ExpiresAt   time.Time `gorm:"index" json:"expires_at"`
+	Revoked     bool      `json:"revoked"`
+	UserAgent   string    `gorm:"size:256" json:"user_agent"`
+	IP          string    `gorm:"size:64" json:"ip"`
+	CreatedAt   time.Time `gorm:"index" json:"created_at"`
 }
 
 // ---------- 权限目录 ----------

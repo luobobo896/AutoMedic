@@ -119,6 +119,84 @@ ensure_user() {
   useradd -r -d "$ROOT" -s /usr/sbin/nologin automedic
 }
 
+pg_ready() {
+  local i
+  for i in $(seq 1 30); do
+    if sudo -u postgres psql -tAc "SELECT 1" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  die "PostgreSQL 未就绪"
+}
+
+ensure_postgres() {
+  command -v psql >/dev/null || die "未找到 psql，请先安装 postgresql"
+  systemctl enable --now postgresql >/dev/null 2>&1 || true
+  pg_ready
+  local has_role has_db
+  has_role="$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='automedic'" || true)"
+  if [[ "$has_role" != "1" ]]; then
+    log "创建 PostgreSQL 角色 automedic"
+    sudo -u postgres createuser -l automedic
+  else
+    skip "pg:role:automedic" "exists"
+  fi
+  has_db="$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='automedic'" || true)"
+  if [[ "$has_db" != "1" ]]; then
+    log "创建数据库 automedic"
+    sudo -u postgres createdb -O automedic automedic
+  else
+    skip "pg:db:automedic" "exists"
+  fi
+  sudo -u postgres psql -d automedic -v ON_ERROR_STOP=1 <<'SQL'
+GRANT ALL ON SCHEMA public TO automedic;
+ALTER SCHEMA public OWNER TO automedic;
+SQL
+  sudo -u automedic psql -d automedic -tAc "SELECT current_user, current_database();" >/dev/null \
+    || die "automedic 无法 peer 登录数据库 automedic"
+  log "PostgreSQL 就绪：peer user=automedic db=automedic"
+}
+
+sync_db_env() {
+  local envf="$ROOT/.env"
+  local dsn='host=/var/run/postgresql user=automedic dbname=automedic sslmode=disable TimeZone=Asia/Shanghai'
+  python3 - "$envf" "$dsn" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+dsn = sys.argv[2]
+text = p.read_text() if p.exists() else ""
+out = []
+seen_driver = seen_dsn = False
+for line in text.splitlines():
+    if line.startswith("AUTOMEDIC_DB_DRIVER="):
+        out.append("AUTOMEDIC_DB_DRIVER=postgres")
+        seen_driver = True
+    elif line.startswith("AUTOMEDIC_DB_DSN="):
+        out.append("AUTOMEDIC_DB_DSN=" + dsn)
+        seen_dsn = True
+    else:
+        out.append(line)
+if not seen_driver:
+    out.append("AUTOMEDIC_DB_DRIVER=postgres")
+if not seen_dsn:
+    out.append("AUTOMEDIC_DB_DSN=" + dsn)
+p.write_text("\n".join(out) + ("\n" if out else ""))
+PY
+  chmod 600 "$envf"
+  chown automedic:automedic "$envf"
+}
+
+archive_sqlite() {
+  local db="$ROOT/data/automedic.db"
+  [[ -f "$db" ]] || return 0
+  local dest="$ROOT/data/automedic.db.pre-pg.$(date -u '+%Y%m%d%H%M%SZ')"
+  mv "$db" "$dest"
+  rm -f "$db-shm" "$db-wal" 2>/dev/null || true
+  chown automedic:automedic "$dest" 2>/dev/null || true
+  log "已归档 SQLite：$dest"
+}
+
 ensure_dirs() {
   mkdir -p "$ROOT"/{configs,data/workspaces,data/logs,data/.dsh,web,migrations} "$SRC"
   chown automedic:automedic "$ROOT"
@@ -144,8 +222,8 @@ AUTOMEDIC_SERVER_ADDR=${LISTEN}
 AUTOMEDIC_SERVER_MODE=release
 AUTOMEDIC_SERVER_WEB_DIR=${ROOT}/web/dist
 AUTOMEDIC_SERVER_ADMIN_TOKEN=${token}
-AUTOMEDIC_DB_DRIVER=sqlite
-AUTOMEDIC_DB_DSN=${ROOT}/data/automedic.db
+AUTOMEDIC_DB_DRIVER=postgres
+AUTOMEDIC_DB_DSN=host=/var/run/postgresql user=automedic dbname=automedic sslmode=disable TimeZone=Asia/Shanghai
 AUTOMEDIC_SECURITY_SECRET_KEY_FILE=${keyf}
 AUTOMEDIC_DSH_HOME=${ROOT}/data/.dsh
 AUTOMEDIC_GIT_WORKSPACE_ROOT=${ROOT}/data/workspaces
@@ -303,7 +381,8 @@ main() {
     ensure_apt_pkg openssh-client
     ensure_apt_pkg openssl
     ensure_apt_pkg nginx
-    ensure_apt_pkg sqlite3
+    ensure_apt_pkg postgresql
+    ensure_apt_pkg postgresql-client
     ensure_apt_pkg rsync
     ensure_apt_pkg nodejs
     ensure_go_latest
@@ -317,12 +396,15 @@ main() {
   else
     log "SKIP 依赖安装（--skip-deps）"
   fi
+  ensure_postgres
   ensure_secrets
+  sync_db_env
   patch_runtime_config
   build_from_source
   install_release
   patch_nginx
   start_and_verify
+  archive_sqlite
   log "部署完成"
 }
 

@@ -8,8 +8,8 @@
 [Unit]
 Description=AutoMedic - Event-driven dsh auto bugfix platform
 Documentation=https://github.com/automedic/automedic
-After=network-online.target
-Wants=network-online.target
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
 
 [Service]
 Type=simple

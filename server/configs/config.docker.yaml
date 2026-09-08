@@ -1,7 +1,7 @@
 # 容器部署配置（由 Dockerfile 复制为 /app/configs/config.yaml）
 # AutoMedic 容器部署配置
 # 所有字段均可用 AUTOMEDIC_ 前缀环境变量覆盖，优先级：环境变量 > 配置文件 > 默认值
-# 例：AUTOMEDIC_DB_DRIVER=mysql  =>  db.driver=mysql
+# 例：AUTOMEDIC_DB_DSN=host=postgres user=automedic password=xxx dbname=automedic port=5432 sslmode=disable
 
 server:
   addr: ":8080"               # AUTOMEDIC_SERVER_ADDR
@@ -12,11 +12,8 @@ server:
   write_timeout: 300
 
 db:
-  driver: "sqlite"            # sqlite | mysql（AUTOMEDIC_DB_DRIVER）
-  dsn: "/app/data/automedic.db"
-  # MySQL 示例：
-  # driver: "mysql"
-  # dsn: "automedic:StrongPass@tcp(mysql:3306)/automedic?charset=utf8mb4&parseTime=True&loc=Local"
+  driver: "postgres"
+  dsn: "host=postgres user=automedic password=automedic dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai"
   max_open: 50
   max_idle: 10
   log_level: "warn"           # silent | error | warn | info

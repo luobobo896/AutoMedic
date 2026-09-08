@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,51 @@ import (
 	"github.com/automedic/automedic/internal/ws"
 	"gorm.io/gorm"
 )
+
+func testPGDSN() string {
+	if v := os.Getenv("AUTOMEDIC_TEST_PG_DSN"); v != "" {
+		return v
+	}
+	return "host=127.0.0.1 user=automedic password=automedic dbname=automedic_test port=55432 sslmode=disable TimeZone=Asia/Shanghai"
+}
+
+func openIsolatedDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	base := testPGDSN()
+	admin, err := store.Open(&config.Config{DB: config.DBConfig{Driver: "postgres", DSN: base, LogLevel: "silent", MaxOpen: 5, MaxIdle: 2}})
+	if err != nil {
+		t.Fatalf("PostgreSQL 测试库不可用: %v（先执行 ./scripts/test.sh，或设置 AUTOMEDIC_TEST_PG_DSN）", err)
+	}
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	schema := "e2e_" + hex.EncodeToString(b)
+	if err := admin.Exec("CREATE SCHEMA " + schema).Error; err != nil {
+		t.Fatalf("CREATE SCHEMA %s: %v", schema, err)
+	}
+	dsn := base + " options=-csearch_path=" + schema
+	db, err := store.Open(&config.Config{DB: config.DBConfig{Driver: "postgres", DSN: dsn, LogLevel: "silent", MaxOpen: 5, MaxIdle: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("SET search_path TO " + schema).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = admin.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE").Error
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+		if sqlDB, err := admin.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	return db
+}
 
 // 本测试用「假 dsh」替换真实 DeepSeek Harness，端到端验证：
 //   事件入站 → 规则命中 → 隔离工作区 → dsh 执行 → 提交 → 推送 → 发布钩子
@@ -123,7 +170,7 @@ func newE2E(t *testing.T, mode model.FixMode) *e2eEnv {
 	hookOut := filepath.Join(root, "released.flag")
 
 	cfg := &config.Config{
-		DB:       config.DBConfig{Driver: "sqlite", DSN: filepath.Join(root, "e2e.db"), LogLevel: "silent", MaxOpen: 5, MaxIdle: 2},
+		DB:       config.DBConfig{Driver: "postgres", DSN: testPGDSN(), LogLevel: "silent", MaxOpen: 5, MaxIdle: 2},
 		Security: config.SecurityConfig{SecretKey: "0123456789012345678901234567890123456789"},
 		DSH: config.DSHConfig{
 			Bin:             dshBin,
@@ -146,13 +193,7 @@ func newE2E(t *testing.T, mode model.FixMode) *e2eEnv {
 		},
 	}
 
-	db, err := store.Open(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(db); err != nil {
-		t.Fatal(err)
-	}
+	db := openIsolatedDB(t)
 	if err := store.SeedDefault(db); err != nil {
 		t.Fatal(err)
 	}

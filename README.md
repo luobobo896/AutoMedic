@@ -73,7 +73,7 @@ open http://localhost:8080
 cd server && ./bin/automedic-server -config configs/config.yaml
 ```
 
-前置依赖：**Go ≥ 1.23**、**Node ≥ 20**、**dsh**（`npm i -g @deepseek-ai/dsh`）、git。
+前置依赖：**Go ≥ 1.23**、**Node ≥ 20**、**PostgreSQL ≥ 16**、**dsh**（`npm i -g @deepseek-ai/dsh`）、git。
 
 ---
 
@@ -84,7 +84,7 @@ automedic/
 ├── server/                      # Go 后端
 │   ├── cmd/server/main.go       # 入口
 │   ├── configs/                 # config.yaml（本地）/ config.docker.yaml（容器）
-│   ├── migrations/              # MySQL 建表 + 种子数据 SQL
+│   ├── migrations/              # 说明：表结构由 AutoMigrate 创建；建库脚本见 docs/database/
 │   ├── scripts/smoke.sh         # 端到端冒烟脚本
 │   └── internal/
 │       ├── api/                 # Gin 路由与 Handler
@@ -95,7 +95,7 @@ automedic/
 │       ├── git/                 # 隔离工作区（clone/commit/push/凭证注入）
 │       ├── model/               # GORM 模型
 │       ├── service/             # 规则引擎 / 事件入站 / 任务执行器 / 日志写入
-│       ├── store/               # 数据库（SQLite/MySQL）、迁移、默认数据
+│       ├── store/               # 数据库（PostgreSQL）、迁移、默认数据
 │       └── ws/                  # WebSocket Hub（任务终端广播）
 ├── web/                         # Vue3 + Element Plus 前端
 │   └── src/views/               # 13 个页面：概览/项目/仓库/规则/凭证/模型配置/

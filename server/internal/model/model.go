@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// JSON 通用 JSON 字段类型，兼容 SQLite / MySQL
+// JSON 通用 JSON 字段类型（PostgreSQL text / jsonb 均可 Scan）
 type JSON json.RawMessage
 
 func (j JSON) Value() (driver.Value, error) {
