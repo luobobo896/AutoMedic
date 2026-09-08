@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================
-# AutoMedic HK 远端部署（由 scripts/deploy-hk.sh 调用）
+# AutoMedic HK 远端部署（由 scripts/deploy-hk.sh 在 git checkout 之后调用）
 # 在 hk 上以 root 执行：源码构建 + 依赖最新化 + systemd + nginx
+# 源码必须已是 git 仓库；本脚本不再 rsync。
 # ============================================================
 set -euo pipefail
 
@@ -22,7 +23,7 @@ die()  { printf '[%s] ERROR %s\n' "$(date '+%F %T')" "$*" >&2; exit 1; }
 skip() { log "SKIP  $1（已是最新：$2）"; }
 
 [[ "$(id -u)" -eq 0 ]] || die "必须以 root 运行"
-[[ -d "$SRC" ]] || die "源码目录不存在: $SRC"
+[[ -d "$SRC/.git" ]] || die "源码目录不是 git 仓库: $SRC（应由 deploy-hk.sh 先 clone/fetch）"
 
 APT_UPDATED=0
 apt_update_once() {
