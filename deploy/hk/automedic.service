@@ -1,0 +1,33 @@
+# AutoMedic systemd 单元（HK 裸机源码部署）
+[Unit]
+Description=AutoMedic - Event-driven dsh auto bugfix platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=automedic
+Group=automedic
+WorkingDirectory=/opt/automedic
+ExecStart=/opt/automedic/automedic-server -config /opt/automedic/configs/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+EnvironmentFile=-/opt/automedic/.env
+Environment=HOME=/opt/automedic
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=false
+ReadWritePaths=/opt/automedic /opt/automedic/data
+
+LimitNOFILE=65535
+MemoryMax=8G
+
+[Install]
+WantedBy=multi-user.target

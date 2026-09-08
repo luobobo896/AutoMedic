@@ -1,0 +1,57 @@
+# AutoMedic HK 测试环境配置
+# 密钥与令牌走 /opt/automedic/.env，禁止把秘密写入本文件。
+server:
+  addr: "127.0.0.1:8087"
+  mode: "release"
+  web_dir: "/opt/automedic/web/dist"
+  admin_token: ""
+  read_timeout: 60
+  write_timeout: 300
+
+db:
+  driver: "sqlite"
+  dsn: "/opt/automedic/data/automedic.db"
+  max_open: 50
+  max_idle: 10
+  log_level: "warn"
+
+security:
+  secret_key: ""
+  secret_key_file: "/opt/automedic/data/.secret_key"
+
+dsh:
+  bin: "/usr/bin/dsh"
+  home: "/opt/automedic/data/.dsh"
+  command_template: '{{.Bin}} --profile headless {{.Patches}} "$(cat {{.TaskFile}})"'
+  use_shell: true
+  timeout_sec: 1800
+  permission_mode: "workspace-write"
+  instruction_file: "AUTOMEDIC.md"
+  output_format: "text"
+  env:
+    - "DSH_TELEMETRY_MODE=DISABLED"
+    - "HOME=/opt/automedic"
+    - "PATH=/usr/local/bin:/usr/bin:/bin"
+
+ocr:
+  bin: "/usr/bin/ocr"
+  timeout_sec: 600
+  env: []
+
+git:
+  workspace_root: "/opt/automedic/data/workspaces"
+  depth: 1
+  reuse_workspace: true
+  branch_prefix: "automedic/fix-"
+  author_name: "AutoMedic"
+  author_email: "automedic@local"
+  auto_push: true
+  release_hook: ""
+  bin: "git"
+  keep_days: 7
+
+log:
+  level: "info"
+  dir: "/opt/automedic/data/logs"
+  retain: 14
+  format: "text"
