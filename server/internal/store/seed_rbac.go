@@ -89,19 +89,24 @@ func roleName(code string) string {
 func ensureRole(db *gorm.DB, tenantID uint, code, name string, builtin bool, perms []string) error {
 	var r model.Role
 	err := db.Where("tenant_id = ? AND code = ?", tenantID, code).First(&r).Error
+	created := false
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		r = model.Role{TenantID: tenantID, Code: code, Name: name, Builtin: builtin}
 		if err := db.Create(&r).Error; err != nil {
 			return err
 		}
+		created = true
 	} else if err != nil {
 		return err
 	}
-	// 内置角色权限以代码目录为准，每次启动补齐
-	if builtin {
+	// 仅在新建时写入默认权限。已有角色（含内置）的权限以库中配置为准，
+	// 避免每次启动把 Web 里调整过的权限补回去。
+	if created && len(perms) > 0 {
 		for _, p := range perms {
 			rp := model.RolePermission{RoleID: r.ID, Code: p}
-			db.Where("role_id = ? AND code = ?", r.ID, p).FirstOrCreate(&rp)
+			if err := db.Where("role_id = ? AND code = ?", r.ID, p).FirstOrCreate(&rp).Error; err != nil {
+				return err
+			}
 		}
 	}
 	return nil

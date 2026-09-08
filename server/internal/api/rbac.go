@@ -310,8 +310,13 @@ func (h *Handlers) ListRoles(c *gin.Context) {
 	var list []model.Role
 	tid := h.tenant(c)
 	q := h.db
+	p := h.principal(c)
 	if tid != 0 {
-		q = q.Where("tenant_id = ? OR tenant_id = 0", tid)
+		if p != nil && p.IsSuper {
+			q = q.Where("tenant_id = ? OR tenant_id = 0", tid)
+		} else {
+			q = q.Where("tenant_id = ?", tid)
+		}
 	}
 	if err := q.Order("tenant_id ASC, id ASC").Find(&list).Error; err != nil {
 		ServerError(c, err)
@@ -325,6 +330,11 @@ func (h *Handlers) ListRoles(c *gin.Context) {
 	}
 	for i := range list {
 		list[i].Permissions = byRole[list[i].ID]
+		if list[i].Builtin {
+			if def, ok := model.BuiltinRoles[list[i].Code]; ok {
+				list[i].DefaultPermissions = def
+			}
+		}
 	}
 	OK(c, list)
 }
@@ -399,9 +409,21 @@ func (h *Handlers) UpdateRole(c *gin.Context) {
 		BadRequest(c, err)
 		return
 	}
-	if in.Permissions != nil {
-		store.SetRolePermissions(h.db, r.ID, in.Permissions)
+	// 平台超管始终全量权限（鉴权还走 IsSuper）；其余角色（含内置）按提交覆盖。
+	if r.Code == model.RoleSuperAdmin && r.TenantID == 0 {
+		if err := store.SetRolePermissions(h.db, r.ID, model.AllPermissions()); err != nil {
+			ServerError(c, err)
+			return
+		}
+	} else if in.Permissions != nil {
+		if err := store.SetRolePermissions(h.db, r.ID, in.Permissions); err != nil {
+			ServerError(c, err)
+			return
+		}
 	}
+	var perms []string
+	h.db.Model(&model.RolePermission{}).Where("role_id = ?", r.ID).Pluck("code", &perms)
+	r.Permissions = perms
 	OK(c, r)
 }
 

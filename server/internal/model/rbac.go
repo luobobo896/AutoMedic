@@ -36,11 +36,13 @@ type Role struct {
 	TenantID uint   `gorm:"index;not null;default:0" json:"tenant_id"`
 	Code     string `gorm:"size:64;not null" json:"code"`
 	Name     string `gorm:"size:128;not null" json:"name"`
-	Builtin  bool   `gorm:"default:false" json:"builtin"` // 内置角色不可删除
+	Builtin  bool   `gorm:"default:false" json:"builtin"` // 内置角色不可删除；权限可在 Web 调整
 	Remark   string `gorm:"size:512" json:"remark"`
 
 	// 非持久化：角色关联的权限码（读写接口填充）
 	Permissions []string `gorm:"-" json:"permissions,omitempty"`
+	// 非持久化：内置角色出厂权限，供「恢复默认」使用
+	DefaultPermissions []string `gorm:"-" json:"default_permissions,omitempty"`
 }
 
 func (Role) TableName() string { return "roles" }
