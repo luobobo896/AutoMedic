@@ -326,6 +326,14 @@ func TestClickThroughAllAdminFlows(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	listed := e.do(http.MethodGet, fmt.Sprintf("/api/v1/repos/%d/reviews", rid), e.token, nil)
+	if listed.Status != http.StatusOK || listed.Code != 0 {
+		t.Fatalf("审查记录列表失败: %+v", listed)
+	}
+	arr, _ := listed.Data.([]any)
+	if len(arr) == 0 {
+		t.Fatal("关掉抽屉后再打开应能读到审查记录")
+	}
 
 	rule := e.ok(http.MethodPost, "/api/v1/rules", map[string]any{
 		"project_id": pid, "name": "panic", "enabled": true, "action": "fix",

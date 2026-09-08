@@ -128,6 +128,7 @@ export const testRepo = (id) => http.post(`/v1/repos/${id}/test`)
 export const repoTree = (id) => http.get(`/v1/repos/${id}/tree`)
 export const repoFile = (id, path) => http.get(`/v1/repos/${id}/file`, { params: { path } })
 export const startRepoReview = (id, data) => http.post(`/v1/repos/${id}/review`, data, { timeout: 120000 })
+export const listRepoReviews = (id) => http.get(`/v1/repos/${id}/reviews`)
 export const getReviewJob = (id) => http.get(`/v1/reviews/${id}`, { timeout: 30000 })
 export const fixReviewJob = (id, data) => http.post(`/v1/reviews/${id}/fix`, data, { timeout: 120000 })
 

@@ -28,6 +28,20 @@
           </span>
         </el-form-item>
       </el-form>
+      <div class="review-history">
+        <div class="review-history-head">审查记录</div>
+        <div v-if="historyLoading" class="am-text-dim" style="font-size:12px">正在读取上次结果…</div>
+        <div v-else-if="!history.length" class="am-text-dim" style="font-size:12px">还没有审查记录。开始一次后，关掉抽屉再打开仍能看到上次结果。</div>
+        <ul v-else class="review-history-list">
+          <li v-for="h in history" :key="h.id">
+            <button type="button" class="review-history-item" :class="{ current: job?.id === h.id }" @click="openHistory(h)">
+              <span class="review-history-id">#{{ h.id }}</span>
+              <el-tag size="small" :type="statusType(h.status)">{{ statusLabel(h.status) }}</el-tag>
+              <span class="am-text-dim">{{ historySummary(h) }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
       <div class="am-text-dim" style="font-size:12px;margin-bottom:8px">
         调用官方 Open Code Review CLI（`ocr`），不改代码。已合入主干的预埋问题请用「扫描已合入代码」；「相对基线的 diff」只审未合入当前分支的改动。模型与密钥来自「大模型配置中心」。
       </div>
@@ -89,7 +103,7 @@
 
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { startRepoReview, getReviewJob, fixReviewJob } from '@/api'
+import { startRepoReview, getReviewJob, listRepoReviews, fixReviewJob } from '@/api'
 import { ElMessage } from 'element-plus'
 import { useDicts, splitCSV } from '@/composables/useDicts'
 import { formatDuration } from '@/utils/format'
@@ -117,6 +131,8 @@ const pathOptions = computed(() => {
 })
 const starting = ref(false)
 const fixing = ref(false)
+const historyLoading = ref(false)
+const history = ref([])
 const job = ref(null)
 const selected = ref([])
 const createdIds = ref([])
@@ -154,19 +170,22 @@ const timeoutHint = computed(() => '约 10 分钟')
 watch(() => [visible.value, props.repo?.id], async () => {
   await dict.load()
   stopPoll()
-  job.value = null
   selected.value = []
   createdIds.value = []
   detail.value = null
   detailOpen.value = false
-  if (visible.value && props.repo) {
-    const paths = splitCSV(props.repo.code_paths)
-    form.value = {
-      mode: 'scan',
-      from: defaultFrom(props.repo.branch),
-      path: paths[0] || (String(props.repo.language).toLowerCase() === 'java' ? 'src/' : 'internal/')
-    }
+  if (!visible.value || !props.repo) {
+    job.value = null
+    history.value = []
+    return
   }
+  const paths = splitCSV(props.repo.code_paths)
+  form.value = {
+    mode: 'scan',
+    from: defaultFrom(props.repo.branch),
+    path: paths[0] || (String(props.repo.language).toLowerCase() === 'java' ? 'src/' : 'internal/')
+  }
+  await loadHistory(true)
 })
 
 function loc(row) {
@@ -204,6 +223,55 @@ function defaultFrom(branch) {
   return 'main'
 }
 
+function statusLabel(s) {
+  return ({ pending: '排队', running: '审查中', success: '完成', failed: '失败' })[s] || s || '-'
+}
+function statusType(s) {
+  if (s === 'success') return 'success'
+  if (s === 'failed') return 'danger'
+  if (s === 'running' || s === 'pending') return 'warning'
+  return 'info'
+}
+function historySummary(h) {
+  const bits = []
+  bits.push(h.mode === 'scan' ? (h.path || '扫描') : `${h.from_ref || '-'} → ${h.to_ref || '-'}`)
+  if (h.status === 'success') bits.push(`${h.finding_n || 0} 条意见`)
+  if (h.status === 'failed' && h.error_msg) bits.push(humanFail(h.error_msg))
+  if (h.created_at) bits.push(String(h.created_at).replace('T', ' ').slice(0, 19))
+  return bits.join(' · ')
+}
+
+function applyJob(next) {
+  job.value = next
+  if (next?.status === 'pending' || next?.status === 'running') poll()
+  else stopPoll()
+}
+
+async function loadHistory(selectLatest) {
+  if (!props.repo?.id) return
+  historyLoading.value = true
+  try {
+    const r = await listRepoReviews(props.repo.id)
+    history.value = Array.isArray(r.data) ? r.data : []
+    if (selectLatest && history.value.length) openHistory(history.value[0])
+    else if (selectLatest) job.value = null
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+function openHistory(row) {
+  if (!row?.id) return
+  applyJob(row)
+  if (row.mode === 'scan') {
+    form.value.mode = 'scan'
+    if (row.path) form.value.path = row.path
+  } else {
+    form.value.mode = 'review'
+    if (row.from_ref) form.value.from = row.from_ref
+  }
+}
+
 async function start() {
   if (!props.repo?.id) return
   if (form.value.mode === 'review') {
@@ -222,8 +290,8 @@ async function start() {
     if (form.value.mode === 'review') body.from = form.value.from
     if (form.value.mode === 'scan') body.path = form.value.path
     const r = await startRepoReview(props.repo.id, body)
-    job.value = r.data
-    poll()
+    applyJob(r.data)
+    await loadHistory(false)
   } finally {
     starting.value = false
   }
@@ -238,6 +306,9 @@ function poll() {
       const r = await getReviewJob(job.value.id)
       job.value = r.data
       nowMs.value = Date.now()
+      const i = history.value.findIndex((x) => x.id === r.data.id)
+      if (i >= 0) history.value[i] = r.data
+      else history.value = [r.data, ...history.value]
       if (job.value.status === 'success' || job.value.status === 'failed') stopPoll()
     } catch {
       stopPoll()
@@ -275,6 +346,49 @@ onUnmounted(stopPoll)
 <style scoped>
 .review-layout {
   min-height: 280px;
+}
+.review-history {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--am-border);
+  border-radius: 10px;
+  background: var(--am-bg-elevated);
+}
+.review-history-head {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.review-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 148px;
+  overflow-y: auto;
+}
+.review-history-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--am-text);
+  padding: 6px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.review-history-item:hover,
+.review-history-item.current {
+  border-color: var(--am-border);
+  background: var(--am-bg-inset);
+}
+.review-history-id {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
 }
 .review-progress {
   border: 1px solid var(--am-border);

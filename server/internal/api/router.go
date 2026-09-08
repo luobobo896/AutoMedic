@@ -91,6 +91,7 @@ func NewRouter(d *Deps) *gin.Engine {
 		authed.GET("/repos/:id/tree", P(model.PermRepoRead), h.GetRepoTree)
 		authed.GET("/repos/:id/file", P(model.PermRepoRead), h.GetRepoFile)
 		authed.POST("/repos/:id/review", P(model.PermRepoReview), h.StartRepoReview)
+		authed.GET("/repos/:id/reviews", P(model.PermRepoRead), h.ListRepoReviews)
 		authed.GET("/reviews/:id", P(model.PermRepoRead), h.GetReviewJob)
 		authed.POST("/reviews/:id/fix", P(model.PermRepoReview), h.FixReviewJob)
 

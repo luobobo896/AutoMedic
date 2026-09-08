@@ -89,6 +89,21 @@ func (e *Executor) GetReviewJob(id uint) (*model.ReviewJob, error) {
 	return &job, nil
 }
 
+func (e *Executor) ListRepoReviews(repoID, tenantID uint, limit int) ([]model.ReviewJob, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	q := e.db.Where("repo_id = ?", repoID)
+	if tenantID != 0 {
+		q = q.Where("tenant_id = ?", tenantID)
+	}
+	var list []model.ReviewJob
+	if err := q.Order("id DESC").Limit(limit).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 type ReviewJobView struct {
 	ID         uint               `json:"id"`
 	CreatedAt  time.Time          `json:"created_at"`

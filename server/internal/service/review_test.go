@@ -320,6 +320,38 @@ exit 0
 	}
 }
 
+func TestListRepoReviewsKeepsLatest(t *testing.T) {
+	e := newE2E(t, model.FixModeSemi)
+	var repo model.Repository
+	if err := e.db.First(&repo).Error; err != nil {
+		t.Fatal(err)
+	}
+	old := &model.ReviewJob{
+		ProjectID: e.project.ID, RepoID: repo.ID,
+		Status: model.ReviewStatusSuccess, Mode: "scan", FindingN: 2,
+	}
+	cur := &model.ReviewJob{
+		ProjectID: e.project.ID, RepoID: repo.ID,
+		Status: model.ReviewStatusRunning, Mode: "scan", Progress: "审查中",
+	}
+	if err := e.db.Create(old).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.Create(cur).Error; err != nil {
+		t.Fatal(err)
+	}
+	list, err := e.ex.ListRepoReviews(repo.ID, 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) < 2 {
+		t.Fatalf("len=%d", len(list))
+	}
+	if list[0].ID != cur.ID {
+		t.Fatalf("最近一次应排第一，got=%d want=%d", list[0].ID, cur.ID)
+	}
+}
+
 func TestFixReviewFindingsRejectsUnknownKey(t *testing.T) {
 	e := newE2E(t, model.FixModeSemi)
 	var repo model.Repository

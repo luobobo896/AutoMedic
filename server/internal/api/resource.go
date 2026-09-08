@@ -345,6 +345,27 @@ func (h *Handlers) StartRepoReview(c *gin.Context) {
 	OK(c, service.ReviewJobAPI(job))
 }
 
+func (h *Handlers) ListRepoReviews(c *gin.Context) {
+	r, ok := h.loadRepo(c)
+	if !ok {
+		return
+	}
+	if h.exec == nil {
+		Fail(c, 500, "执行器未就绪")
+		return
+	}
+	list, err := h.exec.ListRepoReviews(r.ID, h.tenant(c), 20)
+	if err != nil {
+		ServerError(c, err)
+		return
+	}
+	out := make([]service.ReviewJobView, 0, len(list))
+	for i := range list {
+		out = append(out, service.ReviewJobAPI(&list[i]))
+	}
+	OK(c, out)
+}
+
 func (h *Handlers) GetReviewJob(c *gin.Context) {
 	id, ok := ParseID(c, "id")
 	if !ok {
