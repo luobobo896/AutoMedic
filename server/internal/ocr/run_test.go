@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/automedic/automedic/internal/config"
+	"github.com/automedic/automedic/internal/execx"
 )
 
 func TestBuildArgsReviewRequiresFrom(t *testing.T) {
@@ -56,6 +57,46 @@ func TestRunEmptyExitExplainsMissingOutput(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "无 stdout/stderr") {
 		t.Fatalf("空输出应给原因提示，实际: %s", err.Error())
+	}
+}
+
+func TestHumanOCRFailureOmitsToolTrace(t *testing.T) {
+	msg := humanOCRFailure(execx.Result{
+		ExitCode: -1,
+		Err:      context.DeadlineExceeded,
+		Output:   "[ocr] full-scan: 11 file(s)\n[ocr] ▶ code_comment\n[ocr] ✔ code_search (4ms)\ncannot find merge-base between main and feature\n",
+	})
+	if strings.Contains(msg, "code_comment") || strings.Contains(msg, "full-scan") {
+		t.Fatalf("失败摘要不应带工具流水: %s", msg)
+	}
+	if !strings.Contains(msg, "超时") {
+		t.Fatalf("超时应说明超时，不贴工具流水: %s", msg)
+	}
+}
+
+func TestRunKeepsFindingsWhenCLITimesOut(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "ocr")
+	script := `#!/bin/sh
+out=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--output" ]; then out="$2"; shift 2; continue; fi
+  shift
+done
+printf '{"comments":[{"file":"a.go","line":1,"severity":"high","title":"空指针","body":"未判空"}]}' > "$out"
+echo "[ocr] ▶ code_comment" >&2
+sleep 3
+exit 0
+`
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rr, err := Run(context.Background(), &config.OCRConfig{Bin: bin, TimeoutSec: 1}, dir, RunSpec{Mode: "scan", Path: "a.go"}, nil)
+	if err != nil {
+		t.Fatalf("已有意见时超时应回收成功: %v", err)
+	}
+	if len(rr.Findings) != 1 || rr.Findings[0].Title != "空指针" {
+		t.Fatalf("findings=%+v", rr.Findings)
 	}
 }
 

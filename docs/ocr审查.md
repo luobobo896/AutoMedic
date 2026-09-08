@@ -27,7 +27,7 @@
 
 厂家未配 API Key、或自定义厂家未填 Base URL 时任务失败并回显原因。
 
-`ocr review --from/--to` 只审相对基线的 diff。**已合入当前分支的预埋问题不会出现在 diff 里**，必须用 `ocr scan --path`。平台拒绝 `from` 与当前分支相同（否则会空跑成功、0 条意见）。diff 审查会取完整 from/to 历史以便 `git merge-base`；本机 Git ≥ 2.41。失败时 `error_msg` 带上 `ocr` 的 stderr。运行中 `progress` 为当前步骤（拉仓库 / 审查某文件 / 等模型 / 摘要），`logs` 为过程摘要；OCR 真正进度来自 `~/.opencodereview/sessions` 的 jsonl，不是 CLI stdout。
+`ocr review --from/--to` 只审相对基线的 diff。**已合入当前分支的预埋问题不会出现在 diff 里**，必须用 `ocr scan --path`。平台拒绝 `from` 与当前分支相同（否则会空跑成功、0 条意见）。diff 审查会取完整 from/to 历史以便 `git merge-base`；本机 Git ≥ 2.41。失败时 `error_msg` 只保留人能看懂的原因（超时、merge-base、缺密钥），不贴 `▶ code_search` 一类工具流水。超时但已经写出意见时按成功回收。列表展示短摘要，点「详情」看完整问题。运行中 `progress` 为当前步骤，`logs` 为过程摘要；OCR 进度来自 session jsonl。
 
 ---
 

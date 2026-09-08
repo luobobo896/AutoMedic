@@ -106,9 +106,12 @@ func looksLikeFinding(m map[string]any) bool {
 
 func mapFinding(m map[string]any) (Finding, bool) {
 	path := firstString(m, "file", "path", "filename", "filePath", "file_path", "relativePath")
-	title := firstString(m, "title", "message", "summary", "comment", "body", "content", "text")
-	body := firstString(m, "body", "content", "comment", "message", "description", "suggestion", "advice")
-	if path == "" && title == "" {
+	title := firstString(m, "title", "summary")
+	body := firstString(m, "body", "content", "comment", "message", "description", "suggestion", "advice", "text")
+	if title == "" {
+		title = firstSentence(body, 72)
+	}
+	if path == "" && title == "" && body == "" {
 		return Finding{}, false
 	}
 	line := firstInt(m, "line", "startLine", "start_line", "lineNumber", "line_number", "beginLine")
@@ -117,10 +120,10 @@ func mapFinding(m map[string]any) (Finding, bool) {
 	sev = normalizeSeverity(sev)
 	rule := firstString(m, "rule", "ruleId", "rule_id", "category", "checker", "id")
 	if title == "" {
-		title = body
-	}
-	if title == "" {
 		title = path
+	}
+	if body == "" {
+		body = title
 	}
 	f := Finding{
 		Path:     strings.TrimSpace(path),
@@ -128,7 +131,7 @@ func mapFinding(m map[string]any) (Finding, bool) {
 		EndLine:  end,
 		Severity: sev,
 		Rule:     rule,
-		Title:    strings.TrimSpace(oneLine(title, 240)),
+		Title:    strings.TrimSpace(oneLine(title, 72)),
 		Body:     strings.TrimSpace(body),
 	}
 	if key := firstString(m, "key", "id", "commentId"); key != "" && !isLowEntropyID(key) {
@@ -209,8 +212,23 @@ func firstInt(m map[string]any, keys ...string) int {
 func oneLine(s string, n int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.Join(strings.Fields(s), " ")
-	if len(s) <= n {
+	if n <= 0 || len(s) <= n {
 		return s
 	}
-	return s[:n]
+	return strings.TrimSpace(s[:n]) + "…"
+}
+
+func firstSentence(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if s == "" {
+		return ""
+	}
+	cut := n
+	for _, sep := range []string{"。", "！", "？", ". ", "! ", "? ", "; "} {
+		i := strings.Index(s, sep)
+		if i > 12 && i < cut {
+			cut = i
+		}
+	}
+	return oneLine(s, cut)
 }

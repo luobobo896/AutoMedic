@@ -86,20 +86,67 @@ func Run(ctx context.Context, cfg *config.OCRConfig, workDir string, spec RunSpe
 	findings, parseErr := ParseFindings(raw)
 	out.Findings = findings
 	if res.Err != nil {
-		detail := strings.TrimSpace(res.Output)
-		if detail == "" || detail == res.Err.Error() {
-			hint := res.Err.Error()
-			if res.ExitCode == 1 {
-				hint = "无 stdout/stderr。常见原因：Git < 2.41、浅克隆无法 merge-base、ocr 未安装、或厂家 API Key/Base URL 未注入"
-			}
-			detail = hint
+		if len(findings) > 0 {
+			return out, nil
 		}
-		return out, fmt.Errorf("ocr 退出码 %d: %s", res.ExitCode, truncateRunErr(detail, 1500))
+		return out, fmt.Errorf("ocr 退出码 %d: %s", res.ExitCode, humanOCRFailure(res))
 	}
 	if parseErr != nil {
 		return out, parseErr
 	}
 	return out, nil
+}
+
+func humanOCRFailure(res execx.Result) string {
+	if res.Err != nil && (res.ExitCode == -1 || strings.Contains(res.Err.Error(), "deadline") || strings.Contains(res.Err.Error(), "timed out")) {
+		return "审查超时。已扫过的文件意见会尽量保留；可缩小路径或提高超时后重试"
+	}
+	out := strings.TrimSpace(res.Output)
+	if out == "" || out == res.Err.Error() {
+		if res.ExitCode == 1 {
+			return "无 stdout/stderr。常见原因：Git < 2.41、浅克隆无法 merge-base、ocr 未安装、或厂家 API Key/Base URL 未注入"
+		}
+		if res.Err != nil {
+			return res.Err.Error()
+		}
+		return "ocr 失败且没有可读输出"
+	}
+	if i := strings.Index(out, "cannot find merge-base"); i >= 0 {
+		return oneLine(out[i:], 200)
+	}
+	lines := strings.Split(out, "\n")
+	var keep []string
+	for _, ln := range lines {
+		ln = strings.TrimSpace(ln)
+		if ln == "" || isOCRToolNoise(ln) {
+			continue
+		}
+		keep = append(keep, ln)
+		if len(keep) >= 3 {
+			break
+		}
+	}
+	if len(keep) == 0 {
+		return "ocr 失败（工具日志已省略）"
+	}
+	return truncateRunErr(strings.Join(keep, "；"), 280)
+}
+
+func isOCRToolNoise(ln string) bool {
+	s := strings.TrimSpace(ln)
+	s = strings.TrimPrefix(s, "[ocr] ")
+	if s == "" {
+		return true
+	}
+	if strings.HasPrefix(s, "▶") || strings.HasPrefix(s, "✔") {
+		return true
+	}
+	for _, p := range []string{"full-scan:", "estimated cost:", "scan dispatch:", "scan dedup"} {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func buildArgs(spec RunSpec, outFile string) ([]string, error) {

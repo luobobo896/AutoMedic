@@ -40,21 +40,26 @@
           <li v-for="(line, i) in logLines" :key="i">{{ line }}</li>
         </ol>
       </div>
-      <el-alert v-if="job?.status === 'failed'" type="error" :closable="false" :title="job.error_msg || '审查失败'" style="margin-bottom:12px" />
+      <el-alert v-if="job?.status === 'failed'" type="error" :closable="false" :title="failTitle" style="margin-bottom:12px" />
       <el-alert v-else-if="job?.status === 'success' && !findings.length" type="info" :closable="false" title="审查完成，但没有意见。若代码里已有预埋问题，请改用「扫描已合入代码」，不要用与当前分支相同的基线做 diff。" style="margin-bottom:12px" />
       <div v-if="running && !findings.length" class="am-text-dim" style="font-size:12px;margin-bottom:8px">意见会在审查结束后列出，过程见上方日志。</div>
       <el-table :data="findings" size="small" @selection-change="onSel">
         <el-table-column type="selection" width="42" />
-        <el-table-column prop="severity" label="级别" width="90">
+        <el-table-column prop="severity" label="级别" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="sevType(row.severity)">{{ row.severity || '-' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="path" label="位置" min-width="180">
+        <el-table-column prop="path" label="位置" min-width="160">
           <template #default="{ row }">{{ loc(row) }}</template>
         </el-table-column>
-        <el-table-column prop="rule" label="规则" width="120" show-overflow-tooltip />
-        <el-table-column prop="title" label="意见" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="rule" label="规则" width="100" show-overflow-tooltip />
+        <el-table-column prop="title" label="摘要" min-width="220" show-overflow-tooltip />
+        <el-table-column label="" width="72" align="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <div v-if="selected.length" class="am-toolbar" style="margin-top:12px">
         <el-button type="primary" :loading="fixing" @click="fixSelected">用平台修复（{{ selected.length }}）</el-button>
@@ -65,6 +70,20 @@
         <el-button v-for="tid in createdIds" :key="tid" link type="primary" @click="$router.push(`/tasks/${tid}`)">#{{ tid }}</el-button>
       </div>
     </div>
+    <el-dialog v-model="detailOpen" title="审查意见" width="560px" append-to-body>
+      <template v-if="detail">
+        <div class="detail-meta">
+          <el-tag size="small" :type="sevType(detail.severity)">{{ detail.severity || '-' }}</el-tag>
+          <span v-if="detail.rule" class="am-pill">{{ detail.rule }}</span>
+          <span class="am-mono">{{ loc(detail) }}</span>
+        </div>
+        <p class="detail-title">{{ detail.title }}</p>
+        <div class="detail-body">{{ detail.body || detail.title }}</div>
+      </template>
+      <template #footer>
+        <el-button @click="detailOpen = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </el-drawer>
 </template>
 
@@ -101,6 +120,8 @@ const fixing = ref(false)
 const job = ref(null)
 const selected = ref([])
 const createdIds = ref([])
+const detail = ref(null)
+const detailOpen = ref(false)
 const nowMs = ref(Date.now())
 let timer = null
 let tick = null
@@ -112,8 +133,10 @@ const findings = computed(() => {
 })
 const logLines = computed(() => {
   const raw = job.value?.logs
-  return Array.isArray(raw) ? raw.filter(Boolean) : []
+  if (!Array.isArray(raw)) return []
+  return raw.filter((line) => line && !isToolNoise(line))
 })
+const failTitle = computed(() => humanFail(job.value?.error_msg))
 const statusText = computed(() => {
   const s = job.value?.status
   return ({ pending: '排队', running: '审查中', success: '完成', failed: '失败' })[s] || s || ''
@@ -134,6 +157,8 @@ watch(() => [visible.value, props.repo?.id], async () => {
   job.value = null
   selected.value = []
   createdIds.value = []
+  detail.value = null
+  detailOpen.value = false
   if (visible.value && props.repo) {
     const paths = splitCSV(props.repo.code_paths)
     form.value = {
@@ -155,6 +180,21 @@ function sevType(s) {
 }
 function onSel(rows) {
   selected.value = rows || []
+}
+function openDetail(row) {
+  detail.value = row
+  detailOpen.value = true
+}
+function isToolNoise(line) {
+  const s = String(line || '').replace(/^\[ocr\]\s*/, '').trim()
+  return /^[▶✔]/.test(s) || /^(full-scan:|estimated cost:|scan dispatch:|scan dedup)/.test(s)
+}
+function humanFail(msg) {
+  const s = String(msg || '').trim()
+  if (!s) return '审查失败'
+  if (/exit( status)? -1|deadline|timed out|超时/i.test(s)) return '审查超时。已扫过的文件意见会尽量保留；可缩小路径后重试。'
+  const first = s.split('\n').find((ln) => ln.trim() && !isToolNoise(ln)) || s
+  return first.length > 180 ? first.slice(0, 180) + '…' : first
 }
 
 function defaultFrom(branch) {
@@ -258,4 +298,7 @@ onUnmounted(stopPoll)
   line-height: 1.6;
 }
 .review-log li + li { margin-top: 2px; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; color: var(--am-text-dim); font-size: 12px; }
+.detail-title { margin: 0 0 10px; font-weight: 600; color: var(--am-text); }
+.detail-body { white-space: pre-wrap; color: var(--am-text); font-size: 13px; line-height: 1.65; }
 </style>

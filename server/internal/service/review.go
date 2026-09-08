@@ -260,6 +260,9 @@ func (p *reviewProgress) sink(stream, line string) {
 		return
 	}
 	if stream == "stderr" {
+		if isOCRToolNoiseLine(msg) {
+			return
+		}
 		msg = "OCR: " + truncate(msg, 240)
 	} else if strings.HasPrefix(msg, "[ocr] ") {
 		cmd := strings.TrimPrefix(msg, "[ocr] ")
@@ -319,6 +322,23 @@ func splitReviewLogs(s string) []string {
 		return []string{}
 	}
 	return strings.Split(s, "\n")
+}
+
+func isOCRToolNoiseLine(ln string) bool {
+	s := strings.TrimSpace(ln)
+	s = strings.TrimPrefix(s, "[ocr] ")
+	if s == "" {
+		return true
+	}
+	if strings.HasPrefix(s, "▶") || strings.HasPrefix(s, "✔") {
+		return true
+	}
+	for _, p := range []string{"full-scan:", "estimated cost:", "scan dispatch:", "scan dedup", "code_comment", "code_search", "file_read"} {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Executor) recordRepoUsage(repo *model.Repository, action, result, message string) {
