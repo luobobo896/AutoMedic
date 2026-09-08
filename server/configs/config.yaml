@@ -53,7 +53,7 @@ ocr:
   # Open Code Review CLI（npm i -g @alibaba-group/open-code-review），仓库「审查」按钮调用
   bin: "ocr"
   timeout_sec: 600
-  env: []
+  # model_id: 留空=使用默认（仓库/项目审查模型→修复模型→全局默认）；Web 运行设置可指定
 
 git:
   workspace_root: "data/workspaces"

@@ -21,9 +21,10 @@
 
 1. 仓库 `review_model_id`
 2. 项目 `default_review_model_id`
-3. 仓库修复模型 `model_id`
-4. 项目 `default_model_id`
-5. 全局默认模型
+3. 运行设置「指定模型」（`ocr.model_id`）
+4. 仓库修复模型 `model_id`
+5. 项目 `default_model_id`
+6. 全局默认模型
 
 厂家未配 API Key、或自定义厂家未填 Base URL 时任务失败并回显原因。
 
@@ -43,9 +44,9 @@ npm install -g @alibaba-group/open-code-review
 | --- | --- | --- |
 | `ocr.bin` | `ocr` | `AUTOMEDIC_OCR_BIN` |
 | `ocr.timeout_sec` | `600` | — |
-| `ocr.env` | 空 | 传给 ocr 进程的额外 `KEY=VALUE`（不要用来配第二套 API Key） |
+| `ocr.model_id` | 空（使用默认） | Web「运行设置 → Open Code Review」勾选「使用默认模型」或「指定模型」 |
 
-Web「系统设置 → Open Code Review」可热改。
+Web「运行设置 → Open Code Review」选模型，不填环境变量。
 
 ---
 

@@ -38,25 +38,29 @@ func TestReviewModelIDPrefersDedicatedThenFixModel(t *testing.T) {
 	projReview := uint(8)
 	repoFix := uint(7)
 	projFix := uint(6)
+	ocr := uint(5)
 	repo := &model.Repository{ReviewModelID: &review, ModelID: &repoFix}
 	proj := &model.Project{DefaultReviewModelID: &projReview, DefaultModelID: &projFix}
-	if got := reviewModelID(repo, proj); got == nil || *got != 9 {
+	if got := reviewModelID(repo, proj, &ocr); got == nil || *got != 9 {
 		t.Fatalf("仓库审查模型优先, got=%v", got)
 	}
 	repo.ReviewModelID = nil
-	if got := reviewModelID(repo, proj); got == nil || *got != 8 {
+	if got := reviewModelID(repo, proj, &ocr); got == nil || *got != 8 {
 		t.Fatalf("项目审查模型次之, got=%v", got)
 	}
 	proj.DefaultReviewModelID = nil
-	if got := reviewModelID(repo, proj); got == nil || *got != 7 {
-		t.Fatalf("应回退仓库修复模型, got=%v", got)
+	if got := reviewModelID(repo, proj, &ocr); got == nil || *got != 5 {
+		t.Fatalf("运行设置指定的审查模型应先于修复模型, got=%v", got)
+	}
+	if got := reviewModelID(repo, proj, nil); got == nil || *got != 7 {
+		t.Fatalf("未指定时应回退仓库修复模型, got=%v", got)
 	}
 	repo.ModelID = nil
-	if got := reviewModelID(repo, proj); got == nil || *got != 6 {
+	if got := reviewModelID(repo, proj, nil); got == nil || *got != 6 {
 		t.Fatalf("应回退项目修复模型, got=%v", got)
 	}
 	proj.DefaultModelID = nil
-	if got := reviewModelID(repo, proj); got != nil {
+	if got := reviewModelID(repo, proj, nil); got != nil {
 		t.Fatalf("全空应交给全局默认, got=%v", got)
 	}
 }

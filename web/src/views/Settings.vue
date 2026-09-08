@@ -58,11 +58,20 @@
         <el-form-item label="单次审查超时">
           <el-input-number v-model="ocr.timeout_sec" :min="60" :step="60" /> 秒
         </el-form-item>
-        <el-form-item label="额外环境变量">
-          <el-input v-model="ocrEnvText" type="textarea" :rows="3" placeholder="每行一个 KEY=VALUE，如 PATH=..." />
-          <div class="am-text-dim" style="font-size:12px;margin-top:4px">
-            审查默认使用「大模型配置中心」的厂家密钥；项目/仓库可单独指定审查模型，留空则与修复模型同一套。此处仅覆盖 PATH 等，不要再配一套 API Key。
+        <el-form-item label="审查模型">
+          <el-radio-group v-model="ocrUseDefault">
+            <el-radio :value="true">使用默认模型</el-radio>
+            <el-radio :value="false">指定模型</el-radio>
+          </el-radio-group>
+          <div class="am-text-dim" style="font-size:12px;margin-top:6px">
+            默认：仓库/项目审查模型 → 修复模型 → 全局默认。密钥一律来自大模型配置中心。
           </div>
+        </el-form-item>
+        <el-form-item v-if="!ocrUseDefault" label="指定模型">
+          <el-select v-model="ocr.model_id" filterable style="width:360px" placeholder="选择大模型配置中心里的模型">
+            <el-option v-for="m in models" :key="m.id" :label="modelLabel(m)" :value="m.id" />
+          </el-select>
+          <div v-if="!models.length" class="am-text-dim" style="font-size:12px;margin-top:6px">暂无可用模型，请先在「大模型配置中心」添加。</div>
         </el-form-item>
       </el-form>
     </div>
@@ -105,25 +114,36 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getSettings, updateSettings } from '@/api'
+import { getSettings, updateSettings, listModels } from '@/api'
 import { ElMessage } from 'element-plus'
 
 const dsh = ref({})
 const git = ref({})
 const ocr = ref({})
 const envText = ref('')
-const ocrEnvText = ref('')
+const ocrUseDefault = ref(true)
+const models = ref([])
+
+function modelLabel(m) {
+  const p = m.provider?.name || m.provider_name || ''
+  return p ? `${p} / ${m.name}` : (m.name || m.slug || `#${m.id}`)
+}
 
 async function load() {
-  const r = await getSettings()
+  const [r, m] = await Promise.all([getSettings(), listModels()])
   dsh.value = r.data?.dsh || {}
   git.value = r.data?.git || {}
   ocr.value = r.data?.ocr || {}
   envText.value = (dsh.value.env || []).join('\n')
-  ocrEnvText.value = (ocr.value.env || []).join('\n')
+  models.value = Array.isArray(m.data) ? m.data : (m.data?.list || [])
+  ocrUseDefault.value = ocr.value.use_default !== false && !ocr.value.model_id
 }
 
 async function save() {
+  if (!ocrUseDefault.value && !ocr.value.model_id) {
+    ElMessage.error('请选择审查模型，或改回「使用默认模型」')
+    return
+  }
   await updateSettings({
     dsh: {
       bin: dsh.value.bin,
@@ -138,7 +158,8 @@ async function save() {
     ocr: {
       bin: ocr.value.bin,
       timeout_sec: ocr.value.timeout_sec,
-      env: ocrEnvText.value.split('\n').map(s => s.trim()).filter(Boolean)
+      use_default: ocrUseDefault.value,
+      model_id: ocrUseDefault.value ? 0 : (ocr.value.model_id || 0)
     },
     git: {
       workspace_root: git.value.workspace_root,

@@ -507,16 +507,26 @@ func (e *Executor) resolveReviewModel(repo *model.Repository) (*model.LLMModel, 
 		}
 		project = &p
 	}
-	task := &model.Task{ModelID: reviewModelID(repo, project)}
+	task := &model.Task{ModelID: reviewModelID(repo, project, e.ocrModelID())}
 	return e.resolveModel(task, repo, project)
 }
 
-func reviewModelID(repo *model.Repository, project *model.Project) *uint {
+func (e *Executor) ocrModelID() *uint {
+	if e == nil || e.cfg == nil || e.cfg.OCR.ModelID == nil || *e.cfg.OCR.ModelID == 0 {
+		return nil
+	}
+	return e.cfg.OCR.ModelID
+}
+
+func reviewModelID(repo *model.Repository, project *model.Project, ocrModelID *uint) *uint {
 	if repo != nil && repo.ReviewModelID != nil {
 		return repo.ReviewModelID
 	}
 	if project != nil && project.DefaultReviewModelID != nil {
 		return project.DefaultReviewModelID
+	}
+	if ocrModelID != nil && *ocrModelID > 0 {
+		return ocrModelID
 	}
 	if repo != nil && repo.ModelID != nil {
 		return repo.ModelID

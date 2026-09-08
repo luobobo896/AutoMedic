@@ -93,7 +93,9 @@ type OCRConfig struct {
 	Bin string `yaml:"bin"`
 	// 单次审查超时（秒），默认 600
 	TimeoutSec int `yaml:"timeout_sec"`
-	// 传给 ocr 进程的额外环境变量（KEY=VALUE），用于其独立 LLM 配置
+	// 平台审查模型（大模型配置中心的模型 id）。为空则走仓库/项目审查模型，再回退修复/全局默认。
+	ModelID *uint `yaml:"model_id"`
+	// 传给 ocr 进程的额外环境变量（仅运维 PATH 等，不在 Web 暴露）
 	Env []string `yaml:"env"`
 }
 

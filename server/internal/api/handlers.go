@@ -97,7 +97,8 @@ func (h *Handlers) GetSettings(c *gin.Context) {
 		"ocr": gin.H{
 			"bin":         h.cfg.OCR.Bin,
 			"timeout_sec": h.cfg.OCR.TimeoutSec,
-			"env":         h.cfg.OCR.Env,
+			"model_id":    h.cfg.OCR.ModelID,
+			"use_default": h.cfg.OCR.ModelID == nil || *h.cfg.OCR.ModelID == 0,
 		},
 		"git": gin.H{
 			"workspace_root":  h.cfg.Git.WorkspaceRoot,
@@ -127,9 +128,10 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 			Env             []string `json:"env"`
 		} `json:"dsh"`
 		OCR *struct {
-			Bin        *string  `json:"bin"`
-			TimeoutSec *int     `json:"timeout_sec"`
-			Env        []string `json:"env"`
+			Bin        *string `json:"bin"`
+			TimeoutSec *int    `json:"timeout_sec"`
+			UseDefault *bool   `json:"use_default"`
+			ModelID    *uint   `json:"model_id"`
 		} `json:"ocr"`
 		Git *struct {
 			WorkspaceRoot  *string `json:"workspace_root"`
@@ -168,8 +170,15 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 		if body.OCR.TimeoutSec != nil {
 			h.cfg.OCR.TimeoutSec = *body.OCR.TimeoutSec
 		}
-		if body.OCR.Env != nil {
-			h.cfg.OCR.Env = body.OCR.Env
+		if body.OCR.UseDefault != nil && *body.OCR.UseDefault {
+			h.cfg.OCR.ModelID = nil
+		} else if body.OCR.ModelID != nil {
+			if *body.OCR.ModelID == 0 {
+				h.cfg.OCR.ModelID = nil
+			} else {
+				id := *body.OCR.ModelID
+				h.cfg.OCR.ModelID = &id
+			}
 		}
 	}
 	if body.Git != nil {
