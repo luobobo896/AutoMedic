@@ -381,7 +381,7 @@ onBeforeUnmount(() => { stopPolling(); stopWS() })
 <style scoped>
 .am-task-detail {
   height: 100%;
-  min-height: 0;
+  min-height: 520px;
   max-width: 100%;
   overflow: hidden;
   display: flex;
@@ -392,7 +392,7 @@ onBeforeUnmount(() => { stopPolling(); stopWS() })
   flex: none;
 }
 .task-body {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   min-width: 0;
   display: flex;
@@ -402,13 +402,13 @@ onBeforeUnmount(() => { stopPolling(); stopWS() })
 .task-process {
   flex: 1 1 0;
   min-width: 0;
-  min-height: 0;
+  min-height: 320px;
   display: flex;
   flex-direction: column;
 }
 .term-card {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 280px;
   min-width: 0;
   max-width: 100%;
   margin-bottom: 0;
@@ -427,8 +427,8 @@ onBeforeUnmount(() => { stopPolling(); stopWS() })
   font-size: 12px;
 }
 .term-card :deep(.am-terminal) {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 200px;
   height: auto;
 }
 .task-side {
