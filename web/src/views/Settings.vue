@@ -59,9 +59,9 @@
           <el-input-number v-model="ocr.timeout_sec" :min="60" :step="60" /> 秒
         </el-form-item>
         <el-form-item label="额外环境变量">
-          <el-input v-model="ocrEnvText" type="textarea" :rows="3" placeholder="每行一个 KEY=VALUE，给 OCR 自己的 LLM 配置用" />
+          <el-input v-model="ocrEnvText" type="textarea" :rows="3" placeholder="每行一个 KEY=VALUE，如 PATH=..." />
           <div class="am-text-dim" style="font-size:12px;margin-top:4px">
-            仓库「审查」按钮调用官方 `ocr` CLI，不走 dsh。OCR 需单独配置模型（`ocr config provider`），不要和 dsh 抢同一套密钥。
+            审查默认使用「大模型配置中心」的厂家密钥；项目/仓库可单独指定审查模型，留空则与修复模型同一套。此处仅覆盖 PATH 等，不要再配一套 API Key。
           </div>
         </el-form-item>
       </el-form>

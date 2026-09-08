@@ -19,6 +19,7 @@ type RunSpec struct {
 	To      string
 	Path    string
 	ScanAll bool
+	LLMEnv  map[string]string // 平台厂家/模型注入的 OCR_LLM_*，覆盖 ocr 本地配置
 }
 
 type RunResult struct {
@@ -56,6 +57,12 @@ func Run(ctx context.Context, cfg *config.OCRConfig, workDir string, spec RunSpe
 			env[kv[:i]] = kv[i+1:]
 		}
 	}
+	for k, v := range spec.LLMEnv {
+		if strings.TrimSpace(k) == "" {
+			continue
+		}
+		env[k] = v
+	}
 	cmdShow := bin + " " + strings.Join(args, " ")
 	if sink != nil {
 		sink("sys", "[ocr] "+cmdShow)
@@ -72,7 +79,15 @@ func Run(ctx context.Context, cfg *config.OCRConfig, workDir string, spec RunSpe
 	findings, parseErr := ParseFindings(raw)
 	out.Findings = findings
 	if res.Err != nil {
-		return out, fmt.Errorf("ocr 退出码 %d: %w", res.ExitCode, res.Err)
+		detail := strings.TrimSpace(res.Output)
+		if detail == "" || detail == res.Err.Error() {
+			hint := res.Err.Error()
+			if res.ExitCode == 1 {
+				hint = "无 stdout/stderr。常见原因：Git < 2.41、浅克隆无法 merge-base、ocr 未安装、或厂家 API Key/Base URL 未注入"
+			}
+			detail = hint
+		}
+		return out, fmt.Errorf("ocr 退出码 %d: %s", res.ExitCode, truncateRunErr(detail, 1500))
 	}
 	if parseErr != nil {
 		return out, parseErr
@@ -105,4 +120,12 @@ func buildArgs(spec RunSpec, outFile string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("不支持的审查模式 %s（review 或 scan）", spec.Mode)
 	}
+}
+
+func truncateRunErr(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if n <= 0 || len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

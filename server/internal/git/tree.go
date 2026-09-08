@@ -151,8 +151,9 @@ func (m *Manager) fetchTip(ctx context.Context, remoteURL, branch string, env ma
 	return dir, cleanup, nil
 }
 
-// PrepareReviewDir 为 OCR 准备带工作树的浅克隆（审查结束由调用方 cleanup）。
-// 默认只取 to 分支 tip；diff 审查会额外浅取 from，以便 ocr review --from/--to。
+// PrepareReviewDir 为 OCR 准备带工作树的克隆（审查结束由调用方 cleanup）。
+// 仅扫描（无 from）时浅取 to 的 tip；diff 审查必须取完整 from/to 历史，
+// 否则 ocr review 的 git merge-base 会因浅克隆失败并退出码 1。
 func (m *Manager) PrepareReviewDir(ctx context.Context, remoteURL, fromRef, toRef string, env map[string]string) (string, func(), error) {
 	toRef = strings.TrimSpace(toRef)
 	if toRef == "" {
@@ -172,25 +173,46 @@ func (m *Manager) PrepareReviewDir(ctx context.Context, remoteURL, fromRef, toRe
 		cleanup()
 		return "", func() {}, fmt.Errorf("git remote add: %w (code=%d)", err, code)
 	}
-	if out, code, err := m.runOut(ctx, dir, env, "fetch", "--depth=1", "--quiet", "origin", toRef); err != nil {
+	needHistory := fromRef != "" && !sameGitRef(fromRef, toRef)
+	if err := m.fetchReviewRef(ctx, dir, env, toRef, !needHistory); err != nil {
 		cleanup()
-		return "", func() {}, fmt.Errorf("git fetch %s: %w (code=%d) %s", toRef, err, code, strings.TrimSpace(out))
+		return "", func() {}, fmt.Errorf("git fetch %s: %w", toRef, err)
 	}
 	if out, code, err := m.runOut(ctx, dir, env, "checkout", "-B", toRef, "--quiet", "FETCH_HEAD"); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("git checkout: %w (code=%d) %s", err, code, strings.TrimSpace(out))
 	}
-	if fromRef != "" && !sameGitRef(fromRef, toRef) {
-		if out, code, err := m.runOut(ctx, dir, env, "fetch", "--depth=1", "--quiet", "origin", fromRef); err != nil {
+	if needHistory {
+		if err := m.fetchReviewRef(ctx, dir, env, fromRef, false); err != nil {
 			cleanup()
-			return "", func() {}, fmt.Errorf("git fetch 基线 %s: %w (code=%d) %s", fromRef, err, code, strings.TrimSpace(out))
+			return "", func() {}, fmt.Errorf("git fetch 基线 %s: %w", fromRef, err)
 		}
 		if out, code, err := m.runOut(ctx, dir, env, "branch", "-f", fromRef, "FETCH_HEAD"); err != nil {
 			cleanup()
 			return "", func() {}, fmt.Errorf("git branch %s: %w (code=%d) %s", fromRef, err, code, strings.TrimSpace(out))
 		}
+		if out, code, err := m.runOut(ctx, dir, env, "merge-base", fromRef, toRef); err != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("无法计算 %s 与 %s 的 merge-base（ocr review 需要共同祖先）: %w (code=%d) %s", fromRef, toRef, err, code, strings.TrimSpace(out))
+		}
 	}
 	return dir, cleanup, nil
+}
+
+func (m *Manager) fetchReviewRef(ctx context.Context, dir string, env map[string]string, ref string, shallow bool) error {
+	args := []string{"fetch", "--quiet", "origin", ref}
+	if shallow {
+		args = []string{"fetch", "--depth=1", "--quiet", "origin", ref}
+	}
+	out, code, err := m.runOut(ctx, dir, env, args...)
+	if err != nil {
+		msg := strings.TrimSpace(out)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("%s (code=%d)", msg, code)
+	}
+	return nil
 }
 
 func sameGitRef(a, b string) bool {

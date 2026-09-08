@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,6 +145,65 @@ func TestListRemoteTreeAndShowFile(t *testing.T) {
 	}
 	if out, code, err := m.runOut(context.Background(), dir2, env, "rev-parse", "--verify", "main"); err != nil {
 		t.Fatalf("应存在本地基线分支 main (%d): %s", code, out)
+	}
+	if out, code, err := m.runOut(context.Background(), dir2, env, "merge-base", "main", "feature"); err != nil {
+		t.Fatalf("ocr review 需要 merge-base，浅取后必须能算出 (%d): %s", code, out)
+	}
+}
+
+func TestPrepareReviewDirKeepsMergeBaseAcrossDivergedHistory(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	bare := filepath.Join(root, "origin.git")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager("git", filepath.Join(root, "ws"), 0, false, "automedic/fix-", "AutoMedic", "automedic@local")
+	env := map[string]string{
+		"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
+		"GIT_AUTHOR_NAME": "AutoMedic", "GIT_AUTHOR_EMAIL": "automedic@local",
+		"GIT_COMMITTER_NAME": "AutoMedic", "GIT_COMMITTER_EMAIL": "automedic@local",
+	}
+	run := func(dir string, args ...string) {
+		t.Helper()
+		if out, code, err := m.runOut(context.Background(), dir, env, args...); err != nil {
+			t.Fatalf("git %v 失败(%d): %s", args, code, out)
+		}
+	}
+	run(src, "init", "-b", "main")
+	for i := 1; i <= 6; i++ {
+		if err := os.WriteFile(filepath.Join(src, "base.txt"), []byte(fmt.Sprintf("c%d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run(src, "add", "base.txt")
+		run(src, "commit", "-m", fmt.Sprintf("c%d", i))
+	}
+	run(src, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(src, "feat.txt"), []byte("feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(src, "add", "feat.txt")
+	run(src, "commit", "-m", "feat")
+	run(src, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(src, "main.txt"), []byte("main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(src, "add", "main.txt")
+	run(src, "commit", "-m", "main-ahead")
+	if out, code, err := m.runOut(context.Background(), root, env, "clone", "--bare", src, bare); err != nil {
+		t.Fatalf("clone --bare 失败(%d): %s", code, out)
+	}
+
+	dir, cleanup, err := m.PrepareReviewDir(context.Background(), bare, "main", "feature", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if out, code, err := m.runOut(context.Background(), dir, env, "merge-base", "main", "feature"); err != nil {
+		t.Fatalf("分叉历史仍须能 merge-base (%d): %s", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "feat.txt")); err != nil {
+		t.Fatalf("工作树应在 feature: %v", err)
 	}
 }
 

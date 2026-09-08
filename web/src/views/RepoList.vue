@@ -22,13 +22,16 @@
         <el-table-column label="凭证" width="130">
           <template #default="{ row }">{{ row.credential?.name || '未配置' }}</template>
         </el-table-column>
-        <el-table-column label="模型" width="150">
+        <el-table-column label="修复模型" width="130">
           <template #default="{ row }">{{ row.model?.name || '继承项目' }}</template>
+        </el-table-column>
+        <el-table-column label="审查模型" width="130">
+          <template #default="{ row }">{{ row.review_model?.name || '同修复' }}</template>
         </el-table-column>
         <el-table-column label="自动推送" width="90">
           <template #default="{ row }">{{ row.auto_push ? '是' : '否' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="320" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openTree(row)">目录树</el-button>
             <el-button link type="primary" @click="openReview(row)">审查</el-button>
@@ -57,9 +60,14 @@
             <el-option v-for="c in credentials" :key="c.id" :label="`${c.name}（${c.type}）`" :value="c.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="模型">
+        <el-form-item label="修复模型">
           <el-select v-model="form.model_id" clearable style="width:100%" placeholder="留空继承项目">
             <el-option v-for="m in models" :key="m.id" :label="`${m.provider?.name} / ${m.name}`" :value="m.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="审查模型">
+          <el-select v-model="form.review_model_id" clearable style="width:100%" placeholder="留空则与修复模型同一套">
+            <el-option v-for="m in models" :key="'r'+m.id" :label="`${m.provider?.name} / ${m.name}`" :value="m.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="自动推送"><el-switch v-model="form.auto_push" /></el-form-item>

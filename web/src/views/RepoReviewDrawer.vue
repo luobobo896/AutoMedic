@@ -24,7 +24,7 @@
         </el-form-item>
       </el-form>
       <div class="am-text-dim" style="font-size:12px;margin-bottom:8px">
-        调用官方 Open Code Review CLI（`ocr`），不改代码。有问题请勾选后用平台半自动修复。
+        调用官方 Open Code Review CLI（`ocr`），不改代码。模型与密钥来自「大模型配置中心」；仓库/项目可单独指定审查模型，留空则与修复同一套。有问题请勾选后用平台半自动修复。
       </div>
       <el-alert v-if="job?.status === 'failed'" type="error" :closable="false" :title="job.error_msg || '审查失败'" style="margin-bottom:12px" />
       <el-table :data="findings" size="small" v-loading="running" @selection-change="onSel">

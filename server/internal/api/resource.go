@@ -76,7 +76,7 @@ func (h *Handlers) GetProject(c *gin.Context) {
 		return
 	}
 	var repos []model.Repository
-	h.tdb(c).Preload("Credential").Where("project_id = ?", id).Find(&repos)
+	h.tdb(c).Preload("Credential").Preload("Model").Preload("ReviewModel").Where("project_id = ?", id).Find(&repos)
 	var rules []model.Rule
 	h.tdb(c).Where("project_id = ?", id).Order("priority DESC, id ASC").Find(&rules)
 	var tokens []model.IngestToken
@@ -133,7 +133,7 @@ func (h *Handlers) DeleteProject(c *gin.Context) {
 
 func (h *Handlers) ListRepos(c *gin.Context) {
 	var list []model.Repository
-	q := h.tdb(c).Model(&model.Repository{}).Preload("Credential")
+	q := h.tdb(c).Model(&model.Repository{}).Preload("Credential").Preload("Model").Preload("ReviewModel")
 	if pid := c.Query("project_id"); pid != "" {
 		q = q.Where("project_id = ?", pid)
 	}
@@ -179,7 +179,7 @@ func (h *Handlers) GetRepo(c *gin.Context) {
 		return
 	}
 	var r model.Repository
-	if err := h.tdb(c).Preload("Credential").Preload("Project").First(&r, id).Error; err != nil {
+	if err := h.tdb(c).Preload("Credential").Preload("Project").Preload("Model").Preload("ReviewModel").First(&r, id).Error; err != nil {
 		NotFound(c, "仓库不存在")
 		return
 	}

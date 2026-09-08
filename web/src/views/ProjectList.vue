@@ -57,9 +57,14 @@
             <el-radio value="auto">全自动（自动提交推送）</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="默认模型">
+        <el-form-item label="默认修复模型">
           <el-select v-model="form.default_model_id" clearable placeholder="留空则使用全局默认模型" style="width:100%">
             <el-option v-for="m in models" :key="m.id" :label="`${m.provider?.name} / ${m.name}`" :value="m.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="默认审查模型">
+          <el-select v-model="form.default_review_model_id" clearable placeholder="留空则与修复模型同一套" style="width:100%">
+            <el-option v-for="m in models" :key="'r'+m.id" :label="`${m.provider?.name} / ${m.name}`" :value="m.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="发布钩子">
@@ -106,7 +111,7 @@ async function load() {
 }
 
 function openCreate() {
-  form.value = { name: '', key: '', fix_mode: 'semi', enabled: true, default_model_id: null }
+  form.value = { name: '', key: '', fix_mode: 'semi', enabled: true, default_model_id: null, default_review_model_id: null }
   dialog.value = true
 }
 

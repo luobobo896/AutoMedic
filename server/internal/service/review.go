@@ -164,8 +164,15 @@ func (e *Executor) executeReview(jobID uint) {
 		return
 	}
 
+	llmEnv, modelErr := e.reviewLLMEnv(&repo)
+	if modelErr != nil {
+		e.failReview(jobID, modelErr.Error())
+		e.recordRepoUsage(&repo, "review", "fail", modelErr.Error())
+		return
+	}
+
 	rr, runErr := ocr.Run(ctx, &e.cfg.OCR, dir, ocr.RunSpec{
-		Mode: job.Mode, From: job.FromRef, To: job.ToRef, Path: job.Path, ScanAll: job.ScanAll,
+		Mode: job.Mode, From: job.FromRef, To: job.ToRef, Path: job.Path, ScanAll: job.ScanAll, LLMEnv: llmEnv,
 	}, nil)
 	if rr == nil {
 		e.failReview(jobID, "OCR 执行失败: "+runErr.Error())
@@ -341,6 +348,48 @@ func (e *Executor) createOCRFixTask(project *model.Project, repo *model.Reposito
 		return 0, err
 	}
 	return task.ID, nil
+}
+
+func (e *Executor) reviewLLMEnv(repo *model.Repository) (map[string]string, error) {
+	llm, provider, key, err := e.resolveReviewModel(repo)
+	if err != nil {
+		return nil, err
+	}
+	return ocr.LLMEnv(provider, llm, key)
+}
+
+func (e *Executor) resolveReviewModel(repo *model.Repository) (*model.LLMModel, *model.Provider, string, error) {
+	if repo == nil {
+		return nil, nil, "", errors.New("仓库不存在")
+	}
+	var project *model.Project
+	if repo.Project != nil {
+		project = repo.Project
+	} else {
+		var p model.Project
+		if err := e.db.First(&p, repo.ProjectID).Error; err != nil {
+			return nil, nil, "", errors.New("项目不存在")
+		}
+		project = &p
+	}
+	task := &model.Task{ModelID: reviewModelID(repo, project)}
+	return e.resolveModel(task, repo, project)
+}
+
+func reviewModelID(repo *model.Repository, project *model.Project) *uint {
+	if repo != nil && repo.ReviewModelID != nil {
+		return repo.ReviewModelID
+	}
+	if project != nil && project.DefaultReviewModelID != nil {
+		return project.DefaultReviewModelID
+	}
+	if repo != nil && repo.ModelID != nil {
+		return repo.ModelID
+	}
+	if project != nil && project.DefaultModelID != nil {
+		return project.DefaultModelID
+	}
+	return nil
 }
 
 func locLine(f ocr.Finding) string {

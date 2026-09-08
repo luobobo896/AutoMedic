@@ -121,6 +121,8 @@ type Project struct {
 	FixMode     FixMode `gorm:"size:16;default:'semi'" json:"fix_mode"` // 项目级默认模式
 	// 默认使用的模型（为空则用全局默认模型）
 	DefaultModelID *uint `json:"default_model_id"`
+	// 审查用模型（为空则与修复模型同一套）
+	DefaultReviewModelID *uint `json:"default_review_model_id"`
 	// 默认发布钩子（覆盖全局）
 	ReleaseHook string `gorm:"size:1024" json:"release_hook"`
 	// 是否启用事件自动触发
@@ -147,14 +149,17 @@ type Repository struct {
 	CredentialID *uint  `json:"credential_id"`
 	// 该仓库默认使用的模型
 	ModelID *uint `json:"model_id"`
+	// 该仓库审查用模型（为空则：仓库修复模型 → 项目审查模型 → 项目/全局修复模型）
+	ReviewModelID *uint `json:"review_model_id"`
 	// 是否允许自动推送
 	AutoPush   bool   `gorm:"default:true" json:"auto_push"`
 	Enabled    bool   `gorm:"default:true" json:"enabled"`
 	LastCommit string `gorm:"size:64" json:"last_commit"`
 
-	Project    *Project    `gorm:"foreignKey:ProjectID" json:"project,omitempty"`
-	Credential *Credential `gorm:"foreignKey:CredentialID" json:"credential,omitempty"`
-	Model      *LLMModel   `gorm:"foreignKey:ModelID" json:"model,omitempty"`
+	Project     *Project    `gorm:"foreignKey:ProjectID" json:"project,omitempty"`
+	Credential  *Credential `gorm:"foreignKey:CredentialID" json:"credential,omitempty"`
+	Model       *LLMModel   `gorm:"foreignKey:ModelID" json:"model,omitempty"`
+	ReviewModel *LLMModel   `gorm:"foreignKey:ReviewModelID" json:"review_model,omitempty"`
 }
 
 // Credential git 凭证，可被多个项目/仓库复用
