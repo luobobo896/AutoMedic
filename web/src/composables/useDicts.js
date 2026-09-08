@@ -60,7 +60,24 @@ export function useDicts() {
   }
 
   function slugsForKind(kind) {
-    return items('model_slug').filter(x => !kind || x.extra?.kind === kind).map(x => x.value)
+    if (!kind) return items('model_slug').map(x => x.value)
+    const parent = items('provider_kind').find(x => x.value === kind)
+    return items('model_slug').filter(x => {
+      if (parent && x.parent_id && Number(x.parent_id) === Number(parent.id)) return true
+      return x.extra?.kind === kind
+    }).map(x => x.value)
+  }
+
+  function childrenOf(id) {
+    if (!id) return []
+    const pid = Number(id)
+    const list = []
+    for (const g of Object.keys(grouped.value || {})) {
+      for (const it of grouped.value[g] || []) {
+        if (Number(it.parent_id) === pid) list.push(it)
+      }
+    }
+    return list
   }
 
   function temperatureValue(v) {
@@ -68,7 +85,7 @@ export function useDicts() {
     return String(v)
   }
 
-  return reactive({ grouped, groups, load, items, options, values, numberOptions, providerPresets, slugsForKind, temperatureValue })
+  return reactive({ grouped, groups, load, items, options, values, numberOptions, providerPresets, slugsForKind, childrenOf, temperatureValue })
 }
 
 export function splitCSV(s) {

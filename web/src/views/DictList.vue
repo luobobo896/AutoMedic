@@ -3,15 +3,15 @@
     <div class="am-card">
       <div class="am-toolbar">
         <span style="font-weight:600">选项字典</span>
-        <span class="am-text-dim" style="font-size:12px">表单下拉/多选的选项在此维护；启动只补缺，不覆盖已改项</span>
+        <span class="am-text-dim" style="font-size:12px">表单下拉/多选的选项在此维护；启动只补缺，不覆盖已改项。厂家类型与模型标识是父子关系。</span>
         <div class="am-flex-1" />
-        <el-button type="primary" :icon="'Plus'" @click="openCreate">新增选项</el-button>
+        <el-button type="primary" :icon="'Plus'" @click="openCreate()">新增选项</el-button>
         <el-button :icon="'Refresh'" @click="reload" />
       </div>
       <div class="dict-layout">
         <aside class="dict-groups">
           <button
-            v-for="g in dict.groups"
+            v-for="g in visibleGroups"
             :key="g.key"
             type="button"
             class="dict-group"
@@ -19,21 +19,39 @@
             @click="currentGroup = g.key"
           >
             <div>{{ g.name }}</div>
-            <div class="am-text-dim" style="font-size:11px">{{ g.key }} · {{ (dict.grouped[g.key] || []).length }}</div>
+            <div class="am-text-dim" style="font-size:11px">{{ g.key }} · {{ groupCount(g) }}</div>
           </button>
         </aside>
         <section class="dict-items">
-          <el-table :data="rows" size="small">
-            <el-table-column prop="value" label="取值" min-width="140" />
-            <el-table-column prop="label" label="显示名" min-width="140" />
+          <div v-if="!tableRows.length" class="am-empty">该分组暂无选项</div>
+          <el-table
+            v-else
+            :data="tableRows"
+            size="small"
+            row-key="id"
+            :tree-props="{ children: 'children' }"
+            default-expand-all
+          >
+            <el-table-column prop="value" label="取值" min-width="180">
+              <template #default="{ row }">
+                <span :class="{ 'am-text-dim': row._child }">{{ row.value }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="label" label="显示名" min-width="160" />
+            <el-table-column label="分组" width="110">
+              <template #default="{ row }">
+                <span class="am-text-dim">{{ groupName(row.group) }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="sort" label="排序" width="80" />
             <el-table-column label="启用" width="80">
               <template #default="{ row }">
                 <el-switch v-model="row.enabled" size="small" @change="v => toggle(row, v)" />
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140">
+            <el-table-column label="操作" width="200">
               <template #default="{ row }">
+                <el-button v-if="row.group === 'provider_kind'" link type="primary" @click="openCreate('model_slug', row)">加模型</el-button>
                 <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
                 <el-button link type="danger" @click="remove(row)">删除</el-button>
               </template>
@@ -55,9 +73,14 @@
         <el-form-item label="排序"><el-input-number v-model="form.sort" :min="0" /></el-form-item>
         <el-form-item v-if="form.group === 'provider_kind'" label="厂家 key"><el-input v-model="form.extra_key" /></el-form-item>
         <el-form-item v-if="form.group === 'provider_kind'" label="Base URL"><el-input v-model="form.extra_base_url" /></el-form-item>
-        <el-form-item v-if="form.group === 'model_slug'" label="厂家类型">
-          <el-select v-model="form.extra_kind" style="width:100%">
-            <el-option v-for="p in dict.providerPresets()" :key="p.kind" :label="p.name" :value="p.kind" />
+        <el-form-item v-if="form.group === 'model_slug'" label="所属厂家">
+          <el-select v-model="form.parent_id" style="width:100%" @change="onParentChange">
+            <el-option
+              v-for="p in dict.items('provider_kind', { enabledOnly: false })"
+              :key="p.id"
+              :label="p.label || p.value"
+              :value="p.id"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="启用"><el-switch v-model="form.enabled" /></el-form-item>
@@ -81,16 +104,56 @@ const currentGroup = ref('log_level')
 const dialog = ref(false)
 const form = ref({})
 
-const rows = computed(() => dict.items(currentGroup.value, { enabledOnly: false }))
+const visibleGroups = computed(() => (dict.groups || []).filter(g => !g.parent_group))
 
-function openCreate() {
-  form.value = { group: currentGroup.value, value: '', label: '', sort: 10, enabled: true, extra_key: '', extra_base_url: '', extra_kind: '' }
+const tableRows = computed(() => {
+  const g = currentGroup.value
+  const meta = (dict.groups || []).find(x => x.key === g)
+  const parents = dict.items(g, { enabledOnly: false })
+  if (!meta?.child_group) return parents
+  const attached = new Set()
+  const rows = parents.map((p) => {
+    const children = dict.childrenOf(p.id).map((c) => {
+      attached.add(c.id)
+      return { ...c, _child: true }
+    })
+    return children.length ? { ...p, children } : { ...p }
+  })
+  for (const c of dict.items(meta.child_group, { enabledOnly: false })) {
+    if (!attached.has(c.id)) rows.push({ ...c, _child: true })
+  }
+  return rows
+})
+
+function groupCount(g) {
+  const n = (dict.grouped[g.key] || []).length
+  if (!g.child_group) return n
+  return n + (dict.grouped[g.child_group] || []).length
+}
+
+function groupName(key) {
+  return (dict.groups || []).find(g => g.key === key)?.name || key
+}
+
+function onParentChange(id) {
+  const p = dict.items('provider_kind', { enabledOnly: false }).find(x => Number(x.id) === Number(id))
+  form.value.extra_kind = p?.value || ''
+}
+
+function openCreate(group, parent) {
+  const g = group || currentGroup.value
+  form.value = {
+    group: g, value: '', label: '', sort: 10, enabled: true,
+    extra_key: '', extra_base_url: '', extra_kind: parent?.value || '',
+    parent_id: parent?.id || undefined
+  }
   dialog.value = true
 }
 function openEdit(row) {
   form.value = {
     id: row.id, group: row.group, value: row.value, label: row.label, sort: row.sort, enabled: row.enabled,
-    extra_key: row.extra?.key || '', extra_base_url: row.extra?.base_url || '', extra_kind: row.extra?.kind || ''
+    extra_key: row.extra?.key || '', extra_base_url: row.extra?.base_url || '', extra_kind: row.extra?.kind || '',
+    parent_id: row.parent_id || undefined
   }
   dialog.value = true
 }
@@ -103,10 +166,19 @@ function extraOf(f) {
 
 async function submit() {
   const extra = extraOf(form.value)
+  const payload = { label: form.value.label, sort: form.value.sort, enabled: form.value.enabled, extra }
+  if (form.value.group === 'model_slug') payload.parent_id = form.value.parent_id || null
   if (form.value.id) {
-    await updateDict(form.value.id, { label: form.value.label, sort: form.value.sort, enabled: form.value.enabled, extra })
+    await updateDict(form.value.id, payload)
   } else {
-    await createDict({ group: form.value.group, value: form.value.value, label: form.value.label || form.value.value, sort: form.value.sort, extra })
+    await createDict({
+      group: form.value.group,
+      value: form.value.value,
+      label: form.value.label || form.value.value,
+      sort: form.value.sort,
+      extra,
+      parent_id: form.value.parent_id || undefined
+    })
   }
   ElMessage.success('已保存')
   dialog.value = false
@@ -119,6 +191,10 @@ async function toggle(row, v) {
 }
 
 async function remove(row) {
+  if ((row.children || []).length) {
+    ElMessage.warning('请先删除该厂家下的模型标识')
+    return
+  }
   await ElMessageBox.confirm(`删除「${row.label || row.value}」？`, '警告', { type: 'warning' })
   await deleteDict(row.id)
   ElMessage.success('已删除')
@@ -127,12 +203,12 @@ async function remove(row) {
 
 async function reload() {
   await dict.load(true)
-  if (!currentGroup.value && dict.groups.length) currentGroup.value = dict.groups[0].key
+  if (!currentGroup.value && visibleGroups.value.length) currentGroup.value = visibleGroups.value[0].key
 }
 
 onMounted(async () => {
   await dict.load()
-  if (dict.groups.length) currentGroup.value = dict.groups[0].key
+  if (visibleGroups.value.length) currentGroup.value = visibleGroups.value[0].key
 })
 </script>
 
@@ -143,6 +219,7 @@ onMounted(async () => {
   text-align: left; border: 1px solid var(--am-border); background: var(--am-bg-inset);
   color: var(--am-text); border-radius: 10px; padding: 10px 12px; cursor: pointer;
 }
+.dict-group:hover { border-color: var(--am-border-strong); }
 .dict-group.is-current { border-color: var(--am-primary); background: var(--am-primary-soft); }
 @media (max-width: 768px) {
   .dict-layout { grid-template-columns: 1fr; }

@@ -31,3 +31,30 @@ func TestSeedDictsDoesNotOverwriteEdits(t *testing.T) {
 		t.Fatalf("log_level 应有默认项, n=%d", n)
 	}
 }
+
+func TestSeedDictsLinksModelSlugParent(t *testing.T) {
+	db := isolatedDB(t)
+	if err := SeedDicts(db); err != nil {
+		t.Fatal(err)
+	}
+	var parent model.DictItem
+	if err := db.Where(`"group" = ? AND value = ?`, "provider_kind", "deepseek").First(&parent).Error; err != nil {
+		t.Fatal(err)
+	}
+	var slug model.DictItem
+	if err := db.Where(`"group" = ? AND value = ?`, "model_slug", "deepseek-v4-flash").First(&slug).Error; err != nil {
+		t.Fatal(err)
+	}
+	if slug.ParentID == nil || *slug.ParentID != parent.ID {
+		t.Fatalf("deepseek-v4-flash 应挂在 deepseek 下, parent=%v want=%d", slug.ParentID, parent.ID)
+	}
+	if err := SeedDicts(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where(`"group" = ? AND value = ?`, "model_slug", "deepseek-v4-flash").First(&slug).Error; err != nil {
+		t.Fatal(err)
+	}
+	if slug.ParentID == nil || *slug.ParentID != parent.ID {
+		t.Fatal("再次 seed 不应拆掉已挂好的父子")
+	}
+}

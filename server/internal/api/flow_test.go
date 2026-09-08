@@ -160,6 +160,17 @@ func idOf(m map[string]any) uint {
 	}
 }
 
+func parentIDOf(m map[string]any) uint {
+	switch v := m["parent_id"].(type) {
+	case float64:
+		return uint(v)
+	case int:
+		return uint(v)
+	default:
+		return 0
+	}
+}
+
 func setupBareRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -205,6 +216,31 @@ func TestClickThroughAllAdminFlows(t *testing.T) {
 	dicts := e.ok(http.MethodGet, "/api/v1/dicts", nil)
 	if _, ok := dicts["list"]; !ok {
 		t.Fatal("字典列表应返回 list")
+	}
+	dictList, _ := dicts["list"].([]any)
+	var deepseekID float64
+	var flashParent float64
+	for _, raw := range dictList {
+		it, _ := raw.(map[string]any)
+		if str(it, "group") == "provider_kind" && str(it, "value") == "deepseek" {
+			deepseekID, _ = it["id"].(float64)
+		}
+		if str(it, "group") == "model_slug" && str(it, "value") == "deepseek-v4-flash" {
+			flashParent, _ = it["parent_id"].(float64)
+		}
+	}
+	if deepseekID == 0 || flashParent != deepseekID {
+		t.Fatalf("deepseek-v4-flash 应挂在 deepseek 下, parent=%v deepseek=%v", flashParent, deepseekID)
+	}
+	created := e.ok(http.MethodPost, "/api/v1/dicts", map[string]any{
+		"group": "model_slug", "value": "deepseek-tree-test", "label": "deepseek-tree-test",
+		"extra": map[string]any{"kind": "deepseek"},
+	})
+	if idOf(created) == 0 {
+		t.Fatal("新增模型标识应返回 id")
+	}
+	if parentIDOf(created) != uint(deepseekID) {
+		t.Fatalf("按 extra.kind 应自动挂到 deepseek, parent=%d want=%v", parentIDOf(created), deepseekID)
 	}
 
 	proj := e.ok(http.MethodPost, "/api/v1/projects", map[string]any{

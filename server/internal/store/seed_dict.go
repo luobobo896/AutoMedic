@@ -35,8 +35,48 @@ func SeedDicts(db *gorm.DB) error {
 			return err
 		}
 	}
+	if err := linkDictParents(db); err != nil {
+		return err
+	}
 	slog.Info("dicts seeded")
 	return nil
+}
+
+// linkDictParents 把 model_slug 挂到对应 provider_kind（按 extra.kind / 种子映射）。
+// 只补 parent_id 为空的行，不覆盖用户改过的父子关系。
+func linkDictParents(db *gorm.DB) error {
+	var providers []model.DictItem
+	if err := db.Where(`"group" = ?`, "provider_kind").Find(&providers).Error; err != nil {
+		return err
+	}
+	byValue := make(map[string]uint, len(providers))
+	for _, p := range providers {
+		byValue[p.Value] = p.ID
+	}
+	var slugs []model.DictItem
+	if err := db.Where(`"group" = ? AND parent_id IS NULL`, "model_slug").Find(&slugs).Error; err != nil {
+		return err
+	}
+	for _, s := range slugs {
+		kind := extraString(s.Extra, "kind")
+		pid, ok := byValue[kind]
+		if !ok {
+			continue
+		}
+		if err := db.Model(&s).Update("parent_id", pid).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extraString(j model.JSON, key string) string {
+	var m map[string]any
+	if err := j.Unmarshal(&m); err != nil || m == nil {
+		return ""
+	}
+	v, _ := m[key].(string)
+	return v
 }
 
 func extraJSON(m map[string]any) model.JSON {
