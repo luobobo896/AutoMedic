@@ -146,7 +146,7 @@ async function submitPassword() {
 .header { display: flex; align-items: center; justify-content: space-between; background: var(--am-bg-elevated); border-bottom: 1px solid var(--am-border); }
 .header-left { display: flex; align-items: center; gap: 12px; }
 .header-right { display: flex; align-items: center; gap: 12px; }
-.main { background: var(--am-bg); padding: 0; overflow-y: auto; }
+.main { background: var(--am-bg); padding: 0; overflow-x: hidden; overflow-y: auto; }
 .dsh-tag { border-radius: 999px; }
 
 .user-chip {

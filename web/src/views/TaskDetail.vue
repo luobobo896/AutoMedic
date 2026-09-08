@@ -1,5 +1,5 @@
 <template>
-  <div class="am-page" v-loading="booting">
+  <div class="am-page am-task-detail" v-loading="booting">
     <div class="am-toolbar">
       <el-button link type="primary" @click="$router.push('/tasks')">← 返回任务列表</el-button>
       <h3 style="margin:0">修复任务 #{{ id }}</h3>
@@ -16,8 +16,8 @@
       <el-button :icon="'Refresh'" @click="loadAll" />
     </div>
 
-    <el-row :gutter="16">
-      <el-col :span="16">
+    <el-row :gutter="16" class="task-grid">
+      <el-col :span="16" class="task-col-main">
         <div class="am-card">
           <div class="am-toolbar">
             <span style="font-weight:600">修复过程终端</span>
@@ -70,7 +70,7 @@
         </div>
       </el-col>
 
-      <el-col :span="8">
+      <el-col :span="8" class="task-col-side">
         <div class="am-card">
           <div class="am-toolbar"><span style="font-weight:600">任务信息</span></div>
           <el-descriptions :column="1" border size="small">
@@ -339,3 +339,39 @@ watch(id, (next, prev) => {
 onMounted(() => { loadAll() })
 onBeforeUnmount(() => { stopPolling(); stopWS() })
 </script>
+
+<style scoped>
+.am-task-detail {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.task-grid {
+  width: 100%;
+  max-width: 100%;
+}
+.task-grid :deep(.el-col) {
+  min-width: 0;
+  flex-shrink: 1;
+}
+.task-col-main,
+.task-col-side {
+  min-width: 0;
+  max-width: 100%;
+}
+.am-card {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.am-task-detail :deep(.el-descriptions__content),
+.am-task-detail :deep(.el-descriptions__label) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+@media (max-width: 1024px) {
+  .task-grid :deep(.el-col) {
+    max-width: 100%;
+    flex: 0 0 100%;
+  }
+}
+</style>
