@@ -16,16 +16,19 @@ import (
 	"github.com/automedic/automedic/internal/auth"
 	"github.com/automedic/automedic/internal/config"
 	"github.com/automedic/automedic/internal/crypto"
+	"github.com/automedic/automedic/internal/model"
 	"github.com/automedic/automedic/internal/service"
 	"github.com/automedic/automedic/internal/store"
 	"github.com/automedic/automedic/internal/ws"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type flowEnv struct {
 	t     *testing.T
 	r     *gin.Engine
 	token string
+	db    *gorm.DB
 }
 
 func newFlow(t *testing.T) *flowEnv {
@@ -61,7 +64,7 @@ func newFlow(t *testing.T) *flowEnv {
 	exec := service.NewExecutor(db, cfg, crypt, hub)
 	h := NewHandlers(db, cfg, exec, crypt, hub, authSvc)
 	r := NewRouter(&Deps{Cfg: cfg, Handlers: h, Auth: authSvc})
-	e := &flowEnv{t: t, r: r}
+	e := &flowEnv{t: t, r: r, db: db}
 	login := e.do(http.MethodPost, "/api/v1/auth/login", "", map[string]any{"username": "admin", "password": "admin123"})
 	if login.Code != 0 {
 		t.Fatalf("login: %+v", login)
@@ -410,6 +413,36 @@ func TestClickThroughAllAdminFlows(t *testing.T) {
 		t.Fatalf("OCR 默认应使用默认模型: %+v", ocrCfg)
 	}
 	e.ok(http.MethodPost, "/api/v1/auth/logout", map[string]any{})
+}
+
+func TestRetrySuccessfulTaskRejected(t *testing.T) {
+	e := newFlow(t)
+	var tenant model.Tenant
+	if err := e.db.First(&tenant).Error; err != nil {
+		t.Fatal(err)
+	}
+	proj := &model.Project{TenantID: tenant.ID, Name: "p", Key: "p", Enabled: true}
+	if err := e.db.Create(proj).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := &model.Repository{TenantID: tenant.ID, ProjectID: proj.ID, Name: "r", URL: "git@example.com:r.git", Branch: "main", Enabled: true}
+	if err := e.db.Create(repo).Error; err != nil {
+		t.Fatal(err)
+	}
+	task := &model.Task{
+		TenantID: tenant.ID, ProjectID: proj.ID, RepoID: repo.ID,
+		Status: model.TaskStatusSuccess, Stage: "done", Summary: "already fixed",
+	}
+	if err := e.db.Create(task).Error; err != nil {
+		t.Fatal(err)
+	}
+	res := e.do(http.MethodPost, fmt.Sprintf("/api/v1/tasks/%d/retry", task.ID), e.token, nil)
+	if res.Status == http.StatusOK && res.Code == 0 {
+		t.Fatal("成功任务不应允许重试")
+	}
+	if !strings.Contains(res.Msg, "已成功") {
+		t.Fatalf("失败信息应说明已成功，实际: %s", res.Msg)
+	}
 }
 
 func asList(m map[string]any) []any {

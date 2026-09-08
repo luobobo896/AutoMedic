@@ -11,8 +11,15 @@
       <div class="am-flex-1" />
       <el-button v-if="task.status === 'confirming'" type="success" :icon="'Check'" @click="confirmFix">确认修复并推送</el-button>
       <el-button v-if="task.status === 'confirming'" type="danger" :icon="'Close'" @click="rejectFix">驳回</el-button>
-      <el-button v-if="canResumePush" type="success" :icon="'Upload'" @click="retryPushDo">重试推送</el-button>
-      <el-button v-else-if="['failed','ignored','rejected'].includes(task.status)" :icon="'RefreshRight'" @click="retryTaskDo">重试修复</el-button>
+      <el-button
+        v-if="showRetry"
+        :type="canResumePush ? 'success' : 'primary'"
+        :icon="canResumePush ? 'Upload' : 'RefreshRight'"
+        :disabled="!canRetry"
+        :aria-disabled="!canRetry"
+        :title="canRetry ? '' : (task.status === 'success' ? '任务已成功，无需重试' : '当前状态不能重试')"
+        @click="canResumePush ? retryPushDo() : retryTaskDo()"
+      >{{ canResumePush ? '重试推送' : '重试修复' }}</el-button>
       <el-button v-if="['pending','running'].includes(task.status)" :icon="'CircleClose'" @click="cancelTaskDo">取消</el-button>
       <el-button :icon="'Refresh'" @click="loadAll" />
     </div>
@@ -181,6 +188,8 @@ const canResumePush = computed(() => {
   if (task.value.status !== 'failed') return false
   return !!(task.value.patch || task.value.fix_commit || task.value.workspace)
 })
+const showRetry = computed(() => ['success', 'failed', 'ignored', 'rejected', 'cancelled'].includes(task.value.status))
+const canRetry = computed(() => canResumePush.value || ['failed', 'ignored', 'rejected', 'cancelled'].includes(task.value.status))
 const taskId = computed(() => {
   const n = Number(id.value)
   return Number.isInteger(n) && n > 0 ? n : 0

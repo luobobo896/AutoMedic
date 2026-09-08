@@ -121,6 +121,14 @@ func (h *Handlers) RetryTask(c *gin.Context) {
 		OK(c, gin.H{"id": src.ID, "resume": true, "status": src.Status})
 		return
 	}
+	if src.Status == model.TaskStatusSuccess {
+		BadRequest(c, "任务已成功，无需重试")
+		return
+	}
+	if src.Status == model.TaskStatusPending || src.Status == model.TaskStatusConfirming {
+		BadRequest(c, "任务仍在进行中，不能重试")
+		return
+	}
 	if src.Status == model.TaskStatusFailed && service.CanResumeFinalize(src) {
 		go func() {
 			if err := h.exec.Confirm(context.Background(), id, "web", "重试推送"); err != nil {

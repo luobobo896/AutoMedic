@@ -53,8 +53,19 @@
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="$router.push('/tasks/' + row.id)">详情</el-button>
-            <el-button link type="primary" @click.stop="retry(row)">{{ canResumePush(row) ? '重试推送' : '重试' }}</el-button>
-            <el-button link @click.stop="cancel(row)">取消</el-button>
+            <el-button
+              link
+              type="primary"
+              :disabled="!canRetry(row)"
+              :title="canRetry(row) ? '' : retryDisabledHint(row)"
+              :aria-disabled="!canRetry(row)"
+              @click.stop="retry(row)"
+            >{{ canResumePush(row) ? '重试推送' : '重试' }}</el-button>
+            <el-button
+              link
+              :disabled="!canCancel(row)"
+              @click.stop="cancel(row)"
+            >取消</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -91,7 +102,23 @@ function canResumePush(row) {
   return row.status === 'failed' && !!(row.patch || row.fix_commit || row.workspace)
 }
 
+function canRetry(row) {
+  if (canResumePush(row)) return true
+  return ['failed', 'ignored', 'rejected', 'cancelled'].includes(row.status)
+}
+
+function canCancel(row) {
+  return ['pending', 'running'].includes(row.status)
+}
+
+function retryDisabledHint(row) {
+  if (row.status === 'success') return '任务已成功，无需重试'
+  if (['pending', 'running', 'confirming'].includes(row.status)) return '任务仍在进行中，不能重试'
+  return '当前状态不能重试'
+}
+
 async function retry(row) {
+  if (!canRetry(row)) return
   const r = await retryTask(row.id)
   if (r.data?.resume) {
     ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
@@ -102,6 +129,7 @@ async function retry(row) {
 }
 
 async function cancel(row) {
+  if (!canCancel(row)) return
   await cancelTask(row.id)
   ElMessage.success('已取消')
   load()
