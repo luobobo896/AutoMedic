@@ -1,5 +1,5 @@
 <template>
-  <div class="am-page" v-loading="loading">
+  <div class="am-page" v-loading="booting">
     <div class="am-toolbar">
       <el-button link type="primary" @click="$router.push('/tasks')">← 返回任务列表</el-button>
       <h3 style="margin:0">修复任务 #{{ id }}</h3>
@@ -28,7 +28,7 @@
             <el-button size="small" @click="copyLogs">复制日志</el-button>
           </div>
           <div ref="termRef" class="am-terminal">
-            <div v-for="(l, i) in logs" :key="i" :class="'line-' + l.stream">
+            <div v-for="(l, i) in logs" :key="l.seq || i" :class="'line-' + l.stream">
               <span class="am-text-dim">[{{ l.seq }}]</span> {{ stripANSI(l.content) }}
             </div>
             <div v-if="!logs.length" class="am-text-dim">暂无输出</div>
@@ -138,17 +138,18 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getTask, taskLogs, taskPatch, confirmTask, rejectTask, retryTask, cancelTask, taskWSURL } from '@/api'
 import { STATUS_META, STAGE_LABEL, LEVEL_META, formatTime, formatDuration, formatTokens, stripANSI, parseJSON, copyText } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
-const id = route.params.id
+const router = useRouter()
+const id = computed(() => route.params.id)
 const task = ref({})
 const logs = ref([])
 const patchText = ref('')
-const loading = ref(false)
+const booting = ref(true)
 const autoScroll = ref(true)
 const wsConnected = ref(false)
 const termRef = ref()
@@ -156,6 +157,24 @@ const termRef = ref()
 let ws = null
 let timer = null
 let lastSeq = 0
+let logIndex = new Set()
+
+function ended(status) {
+  return ['success', 'failed', 'ignored', 'rejected', 'cancelled'].includes(status)
+}
+
+function appendLogs(rows) {
+  if (!Array.isArray(rows) || !rows.length) return
+  for (const row of rows) {
+    const seq = Number(row.seq) || 0
+    const key = seq || `${row.stream}:${row.content}`
+    if (logIndex.has(key)) continue
+    logIndex.add(key)
+    logs.value.push(row)
+    if (seq > lastSeq) lastSeq = seq
+  }
+  scrollBottom()
+}
 
 const changedFiles = computed(() => parseJSON(task.value.changed_files, []) || [])
 const patchLines = computed(() => (patchText.value || '').split('\n'))
@@ -167,44 +186,57 @@ function diffClass(line) {
   return ''
 }
 
-async function loadAll() {
-  loading.value = true
+async function loadAll({ silent } = {}) {
+  if (!silent && !task.value.id) booting.value = true
   try {
-    const r = await getTask(id)
+    const r = await getTask(id.value)
     task.value = r.data || {}
-    const lr = await taskLogs(id, { limit: 2000 })
-    logs.value = lr.data || []
-    lastSeq = logs.value.length ? logs.value[logs.value.length - 1].seq : 0
-    const pr = await taskPatch(id)
-    patchText.value = pr.data?.patch || ''
-    if (['success', 'failed', 'ignored', 'rejected', 'cancelled'].includes(task.value.status)) {
+    const lr = await taskLogs(id.value, silent ? { after_seq: lastSeq, limit: 1000 } : { limit: 2000 })
+    if (!silent) {
+      logs.value = []
+      logIndex = new Set()
+      lastSeq = 0
+    }
+    appendLogs(Array.isArray(lr.data) ? lr.data : [])
+    if (ended(task.value.status) || task.value.patch || task.value.diff_stat) {
+      const pr = await taskPatch(id.value)
+      patchText.value = pr.data?.patch || patchText.value
+    }
+    if (ended(task.value.status)) {
       stopWS()
+      stopPolling()
     } else {
       startWS()
+      startPolling()
     }
-    scrollBottom()
-  } finally { loading.value = false }
+  } finally {
+    booting.value = false
+  }
 }
 
 function startWS() {
-  if (ws) return
+  if (ws || ended(task.value.status)) return
   try {
-    ws = new WebSocket(taskWSURL(id))
+    ws = new WebSocket(taskWSURL(id.value))
     ws.onopen = () => { wsConnected.value = true }
-    ws.onclose = () => { wsConnected.value = false; ws = null }
+    ws.onclose = () => {
+      wsConnected.value = false
+      ws = null
+      if (!ended(task.value.status)) {
+        setTimeout(() => { if (!ws && !ended(task.value.status)) startWS() }, 2000)
+      }
+    }
     ws.onerror = () => { wsConnected.value = false }
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data)
         if (msg.type === 'log') {
-          lastSeq++
-          logs.value.push({ seq: lastSeq, stream: msg.stream, content: msg.content })
-          scrollBottom()
+          appendLogs([{ seq: msg.seq, stream: msg.stream, content: msg.content }])
         } else if (msg.type === 'status') {
           if (msg.status) task.value.status = msg.status
           if (msg.stage) task.value.stage = msg.stage
         } else if (msg.type === 'done') {
-          setTimeout(loadAll, 800)
+          setTimeout(() => loadAll({ silent: true }), 400)
         }
       } catch { /* ignore */ }
     }
@@ -218,21 +250,21 @@ function stopWS() {
 
 // 兜底轮询：WS 未连接时定时拉取增量日志
 function startPolling() {
-  stopPolling()
+  if (timer) return
   timer = setInterval(async () => {
-    if (wsConnected.value) return
+    if (ended(task.value.status)) {
+      stopPolling()
+      return
+    }
     try {
-      const r = await getTask(id)
+      const r = await getTask(id.value)
       task.value = r.data || task.value
-      const lr = await taskLogs(id, { after_seq: lastSeq, limit: 1000 })
-      const rows = lr.data || []
-      if (rows.length) {
-        logs.value.push(...rows)
-        lastSeq = rows[rows.length - 1].seq
-        scrollBottom()
+      if (!wsConnected.value) {
+        const lr = await taskLogs(id.value, { after_seq: lastSeq, limit: 1000 })
+        appendLogs(Array.isArray(lr.data) ? lr.data : [])
       }
-      if (['success', 'failed', 'ignored', 'rejected', 'cancelled'].includes(task.value.status)) {
-        const pr = await taskPatch(id)
+      if (ended(task.value.status)) {
+        const pr = await taskPatch(id.value)
         patchText.value = pr.data?.patch || ''
         stopPolling()
         stopWS()
@@ -260,9 +292,9 @@ async function confirmFix() {
     inputPlaceholder: '备注（可选）', inputValue: ''
   }).catch(() => ({ value: null }))
   if (value === null) return
-  await confirmTask(id, { operator: 'web', note: value })
+  await confirmTask(id.value, { operator: 'web', note: value })
   ElMessage.success('已确认，正在提交推送')
-  setTimeout(loadAll, 1500)
+  setTimeout(() => loadAll({ silent: true }), 1500)
 }
 
 async function rejectFix() {
@@ -270,25 +302,40 @@ async function rejectFix() {
     inputPlaceholder: '如：定位不准，需人工介入', inputValue: ''
   }).catch(() => ({ value: null }))
   if (value === null) return
-  await rejectTask(id, { operator: 'web', note: value })
+  await rejectTask(id.value, { operator: 'web', note: value })
   ElMessage.success('已驳回')
-  loadAll()
+  loadAll({ silent: true })
 }
 
 async function retryTaskDo() {
-  const r = await retryTask(id)
+  const r = await retryTask(id.value)
   ElMessage.success('已创建重试任务 #' + r.data.id)
-  loadAll()
+  if (r.data?.id) {
+    await router.push('/tasks/' + r.data.id)
+    return
+  }
+  loadAll({ silent: true })
 }
 
 async function cancelTaskDo() {
-  await cancelTask(id)
+  await cancelTask(id.value)
   ElMessage.success('已取消')
-  loadAll()
+  loadAll({ silent: true })
 }
 
 watch(autoScroll, (v) => { if (v) scrollBottom() })
+watch(id, (next, prev) => {
+  if (String(next) === String(prev)) return
+  stopPolling()
+  stopWS()
+  task.value = {}
+  logs.value = []
+  logIndex = new Set()
+  lastSeq = 0
+  patchText.value = ''
+  loadAll()
+})
 
-onMounted(() => { loadAll(); startPolling() })
+onMounted(() => { loadAll() })
 onBeforeUnmount(() => { stopPolling(); stopWS() })
 </script>

@@ -11,7 +11,7 @@
         background-color="transparent"
         text-color="#a7b0c2"
         active-text-color="#6aa1ff"
-        router
+        @select="onMenuSelect"
       >
         <el-menu-item v-for="m in menus" :key="m.path" :index="m.path">
           <el-icon><component :is="m.meta.icon" /></el-icon>
@@ -105,6 +105,11 @@ const activePath = computed(() => {
   if (p.startsWith('/tasks') && p !== '/tasks') return '/tasks'
   return p
 })
+
+function onMenuSelect(index) {
+  if (route.path === index) return
+  router.push(index)
+}
 
 async function onCommand(cmd) {
   if (cmd === 'password') {

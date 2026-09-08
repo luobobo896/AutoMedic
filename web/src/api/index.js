@@ -189,10 +189,9 @@ export const updateDict = (id, data) => http.put(`/v1/dicts/${id}`, data)
 export const deleteDict = (id) => http.delete(`/v1/dicts/${id}`)
 
 export function taskWSURL(taskId) {
-  const base = import.meta.env.VITE_WS_BASE
-  if (base) return `${base}/ws/tasks/${taskId}?token=${encodeURIComponent(getToken())}`
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${location.host}/ws/tasks/${taskId}?token=${encodeURIComponent(getToken())}`
+  const root = String(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')
+  return `${proto}//${location.host}${root}ws/tasks/${taskId}?token=${encodeURIComponent(getToken())}`
 }
 
 export default http
