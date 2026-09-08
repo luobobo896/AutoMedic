@@ -108,7 +108,8 @@ func CountRecent(db *gorm.DB, projectID uint, fingerprint string, since time.Tim
 // HasRecentTask 冷却窗口内是否已有修复任务（同一项目+指纹+仓库）
 func HasRecentTask(db *gorm.DB, projectID uint, fingerprint string, since time.Time) (bool, *model.Task) {
 	var t model.Task
-	err := db.Joins("LEFT JOIN events ON events.id = tasks.event_id").
+	err := db.Session(&gorm.Session{NewDB: true}).
+		Joins("LEFT JOIN events ON events.id = tasks.event_id").
 		Where("tasks.project_id = ? AND events.fingerprint = ? AND tasks.created_at >= ?", projectID, fingerprint, since).
 		Order("tasks.id DESC").First(&t).Error
 	if err != nil {

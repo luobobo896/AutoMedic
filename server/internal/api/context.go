@@ -19,12 +19,21 @@ func (h *Handlers) tenant(c *gin.Context) uint {
 
 // tdb 按租户过滤的 DB 会话（业务表均有 tenant_id 列）
 func (h *Handlers) tdb(c *gin.Context) *gorm.DB {
+	return h.tdbOn(c, "")
+}
+
+// tdbOn 在 JOIN 查询里必须带表名，否则 PostgreSQL 报 tenant_id 不明确。
+func (h *Handlers) tdbOn(c *gin.Context, table string) *gorm.DB {
 	tid := h.tenant(c)
 	if tid == 0 {
 		// 平台超管未指定租户时不做过滤（跨租户视图）
 		return h.db
 	}
-	return h.db.Where("tenant_id = ?", tid)
+	col := "tenant_id"
+	if table != "" {
+		col = table + ".tenant_id"
+	}
+	return h.db.Where(col+" = ?", tid)
 }
 
 // principal 当前登录主体

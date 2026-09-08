@@ -212,6 +212,12 @@ func TestClickThroughAllAdminFlows(t *testing.T) {
 	e.ok(http.MethodGet, "/api/v1/permissions", nil)
 	e.ok(http.MethodGet, "/api/v1/stats/overview", nil)
 	e.ok(http.MethodGet, "/api/v1/stats/trend", nil)
+	if res := e.do(http.MethodGet, "/api/v1/stats/group?group=project", e.token, nil); res.Code != 0 {
+		t.Fatalf("按项目统计不应因 tenant_id 歧义失败: %s", res.Msg)
+	}
+	if res := e.do(http.MethodGet, "/api/v1/stats/group?group=source", e.token, nil); res.Code != 0 {
+		t.Fatalf("按来源统计不应因 tenant_id 歧义失败: %s", res.Msg)
+	}
 	e.ok(http.MethodGet, "/api/v1/settings", nil)
 	dicts := e.ok(http.MethodGet, "/api/v1/dicts", nil)
 	if _, ok := dicts["list"]; !ok {
@@ -360,6 +366,10 @@ func TestClickThroughAllAdminFlows(t *testing.T) {
 	ev, _ := list[0].(map[string]any)
 	eid := idOf(ev)
 	e.ok(http.MethodGet, fmt.Sprintf("/api/v1/events/%d", eid), nil)
+	replayed := e.ok(http.MethodPost, fmt.Sprintf("/api/v1/events/%d/replay", eid), nil)
+	if replayed["event"] == nil && replayed["action"] == nil {
+		t.Fatalf("重放应返回结果: %+v", replayed)
+	}
 
 	tasks := e.ok(http.MethodGet, "/api/v1/tasks?page=1&page_size=20", nil)
 	tlist, _ := tasks["list"].([]any)
@@ -384,8 +394,13 @@ func TestClickThroughAllAdminFlows(t *testing.T) {
 	}
 
 	e.ok(http.MethodPut, "/api/v1/settings", map[string]any{
-		"ocr": map[string]any{"timeout_sec": 120},
+		"ocr": map[string]any{"timeout_sec": 120, "use_default": true, "model_id": 0},
 	})
+	gotSettings := e.ok(http.MethodGet, "/api/v1/settings", nil)
+	ocrCfg, _ := gotSettings["ocr"].(map[string]any)
+	if ocrCfg["use_default"] != true {
+		t.Fatalf("OCR 默认应使用默认模型: %+v", ocrCfg)
+	}
 	e.ok(http.MethodPost, "/api/v1/auth/logout", map[string]any{})
 }
 

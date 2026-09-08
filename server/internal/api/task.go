@@ -292,7 +292,7 @@ func (h *Handlers) StatsGroup(c *gin.Context) {
 		AvgMs   int64  `json:"avg_ms"`
 	}
 	var out []row
-	q := h.tdb(c).Model(&model.Task{}).Where("tasks.created_at >= ?", from)
+	q := h.tdbOn(c, "tasks").Model(&model.Task{}).Where("tasks.created_at >= ?", from)
 	// 各分组维度的公共统计表达式
 	sums := fmt.Sprintf("%s as success, %s as failed, %s as ignored",
 		sumEq("tasks.status", "success"), sumEq("tasks.status", "failed"), sumEq("tasks.status", "ignored"))
