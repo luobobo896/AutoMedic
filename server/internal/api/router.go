@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/automedic/automedic/internal/auth"
 	"github.com/automedic/automedic/internal/config"
+	"github.com/automedic/automedic/internal/model"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
@@ -13,6 +15,7 @@ import (
 type Deps struct {
 	Cfg      *config.Config
 	Handlers *Handlers
+	Auth     *auth.Service
 	WebDir   string
 }
 
@@ -26,7 +29,7 @@ func NewRouter(d *Deps) *gin.Engine {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Admin-Token", "X-AM-Token"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Admin-Token", "X-AM-Token", "X-Tenant-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 	}))
@@ -47,90 +50,124 @@ func NewRouter(d *Deps) *gin.Engine {
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 
 	api := r.Group("/api/v1")
-	api.Use(AdminAuth(d.Cfg.Server.AdminToken))
+
+	// ---------- 公开：账号密码登录 ----------
+	pub := api.Group("/auth")
 	{
-		h := d.Handlers
-		// 概览
-		api.GET("/overview", h.Overview)
-
-		// 项目
-		api.GET("/projects", h.ListProjects)
-		api.POST("/projects", h.CreateProject)
-		api.GET("/projects/:id", h.GetProject)
-		api.PUT("/projects/:id", h.UpdateProject)
-		api.DELETE("/projects/:id", h.DeleteProject)
-
-		// 仓库
-		api.GET("/repos", h.ListRepos)
-		api.POST("/repos", h.CreateRepo)
-		api.GET("/repos/:id", h.GetRepo)
-		api.PUT("/repos/:id", h.UpdateRepo)
-		api.DELETE("/repos/:id", h.DeleteRepo)
-		api.POST("/repos/:id/test", h.TestRepo)
-		api.GET("/repos/:id/tree", h.GetRepoTree)
-		api.GET("/repos/:id/file", h.GetRepoFile)
-		api.POST("/repos/:id/review", h.StartRepoReview)
-		api.GET("/reviews/:id", h.GetReviewJob)
-		api.POST("/reviews/:id/fix", h.FixReviewJob)
-
-		// 凭证
-		api.GET("/credentials", h.ListCredentials)
-		api.POST("/credentials", h.CreateCredential)
-		api.GET("/credentials/:id", h.GetCredential)
-		api.PUT("/credentials/:id", h.UpdateCredential)
-		api.DELETE("/credentials/:id", h.DeleteCredential)
-		api.GET("/credential-usages", h.ListCredentialUsages)
-
-		// 大模型配置
-		api.GET("/providers", h.ListProviders)
-		api.POST("/providers", h.CreateProvider)
-		api.PUT("/providers/:id", h.UpdateProvider)
-		api.DELETE("/providers/:id", h.DeleteProvider)
-		api.GET("/models", h.ListModels)
-		api.POST("/models", h.CreateModel)
-		api.GET("/models/:id", h.GetModel)
-		api.PUT("/models/:id", h.UpdateModel)
-		api.DELETE("/models/:id", h.DeleteModel)
-
-		// 项目令牌
-		api.GET("/tokens", h.ListTokens)
-		api.POST("/tokens", h.CreateToken)
-		api.PUT("/tokens/:id", h.UpdateToken)
-		api.DELETE("/tokens/:id", h.DeleteToken)
-
-		// 规则
-		api.GET("/rules", h.ListRules)
-		api.POST("/rules", h.CreateRule)
-		api.PUT("/rules/:id", h.UpdateRule)
-		api.DELETE("/rules/:id", h.DeleteRule)
-
-		// 事件
-		api.GET("/events", h.ListEvents)
-		api.GET("/events/:id", h.GetEvent)
-		api.POST("/events/:id/replay", h.ReplayEvent)
-
-		// 任务
-		api.GET("/tasks", h.ListTasks)
-		api.GET("/tasks/:id", h.GetTask)
-		api.POST("/tasks/:id/retry", h.RetryTask)
-		api.POST("/tasks/:id/cancel", h.CancelTask)
-		api.POST("/tasks/:id/ignore", h.IgnoreTask)
-		api.POST("/tasks/:id/confirm", h.ConfirmTask)
-		api.POST("/tasks/:id/reject", h.RejectTask)
-		api.GET("/tasks/:id/logs", h.TaskLogs)
-		api.GET("/tasks/:id/patch", h.TaskPatch)
-
-		// 统计
-		api.GET("/stats/overview", h.StatsOverview)
-		api.GET("/stats/trend", h.StatsTrend)
-		api.GET("/stats/group", h.StatsGroup)
-
-		// 配置（dsh / git 运行参数）
-		api.GET("/settings", h.GetSettings)
-		api.PUT("/settings", h.UpdateSettings)
+		pub.POST("/login", d.Handlers.Login)
+		pub.POST("/refresh", d.Handlers.RefreshToken)
 	}
 
-	// 事件投递：令牌鉴权（不走管理鉴权）
+	// ---------- 需登录 ----------
+	authed := api.Group("")
+	authed.Use(d.Auth.Middleware())
+	{
+		h := d.Handlers
+		P := auth.RequirePerm
+
+		// 账号自身
+		authed.POST("/auth/logout", h.Logout)
+		authed.GET("/auth/profile", h.Profile)
+		authed.PUT("/auth/password", h.ChangePassword)
+		authed.GET("/permissions", h.ListPermissions)
+
+		// 概览
+		authed.GET("/overview", P(model.PermOverviewRead), h.Overview)
+
+		// 项目
+		authed.GET("/projects", P(model.PermProjectRead), h.ListProjects)
+		authed.POST("/projects", P(model.PermProjectCreate), h.CreateProject)
+		authed.GET("/projects/:id", P(model.PermProjectRead), h.GetProject)
+		authed.PUT("/projects/:id", P(model.PermProjectUpdate), h.UpdateProject)
+		authed.DELETE("/projects/:id", P(model.PermProjectDelete), h.DeleteProject)
+
+		// 仓库
+		authed.GET("/repos", P(model.PermRepoRead), h.ListRepos)
+		authed.POST("/repos", P(model.PermRepoCreate), h.CreateRepo)
+		authed.GET("/repos/:id", P(model.PermRepoRead), h.GetRepo)
+		authed.PUT("/repos/:id", P(model.PermRepoUpdate), h.UpdateRepo)
+		authed.DELETE("/repos/:id", P(model.PermRepoDelete), h.DeleteRepo)
+		authed.POST("/repos/:id/test", P(model.PermRepoRead), h.TestRepo)
+		authed.GET("/repos/:id/tree", P(model.PermRepoRead), h.GetRepoTree)
+		authed.GET("/repos/:id/file", P(model.PermRepoRead), h.GetRepoFile)
+		authed.POST("/repos/:id/review", P(model.PermRepoReview), h.StartRepoReview)
+		authed.GET("/reviews/:id", P(model.PermRepoRead), h.GetReviewJob)
+		authed.POST("/reviews/:id/fix", P(model.PermRepoReview), h.FixReviewJob)
+
+		// 凭证
+		authed.GET("/credentials", P(model.PermCredentialRead), h.ListCredentials)
+		authed.POST("/credentials", P(model.PermCredentialCreate), h.CreateCredential)
+		authed.GET("/credentials/:id", P(model.PermCredentialRead), h.GetCredential)
+		authed.PUT("/credentials/:id", P(model.PermCredentialUpdate), h.UpdateCredential)
+		authed.DELETE("/credentials/:id", P(model.PermCredentialDelete), h.DeleteCredential)
+		authed.GET("/credential-usages", P(model.PermCredentialRead), h.ListCredentialUsages)
+
+		// 大模型配置（平台级共享）
+		authed.GET("/providers", P(model.PermModelRead), h.ListProviders)
+		authed.POST("/providers", P(model.PermModelUpdate), h.CreateProvider)
+		authed.PUT("/providers/:id", P(model.PermModelUpdate), h.UpdateProvider)
+		authed.DELETE("/providers/:id", P(model.PermModelUpdate), h.DeleteProvider)
+		authed.GET("/models", P(model.PermModelRead), h.ListModels)
+		authed.POST("/models", P(model.PermModelUpdate), h.CreateModel)
+		authed.GET("/models/:id", P(model.PermModelRead), h.GetModel)
+		authed.PUT("/models/:id", P(model.PermModelUpdate), h.UpdateModel)
+		authed.DELETE("/models/:id", P(model.PermModelUpdate), h.DeleteModel)
+
+		// 项目令牌
+		authed.GET("/tokens", P(model.PermTokenRead), h.ListTokens)
+		authed.POST("/tokens", P(model.PermTokenCreate), h.CreateToken)
+		authed.PUT("/tokens/:id", P(model.PermTokenUpdate), h.UpdateToken)
+		authed.DELETE("/tokens/:id", P(model.PermTokenDelete), h.DeleteToken)
+
+		// 规则
+		authed.GET("/rules", P(model.PermRuleRead), h.ListRules)
+		authed.POST("/rules", P(model.PermRuleCreate), h.CreateRule)
+		authed.PUT("/rules/:id", P(model.PermRuleUpdate), h.UpdateRule)
+		authed.DELETE("/rules/:id", P(model.PermRuleDelete), h.DeleteRule)
+
+		// 事件
+		authed.GET("/events", P(model.PermEventRead), h.ListEvents)
+		authed.GET("/events/:id", P(model.PermEventRead), h.GetEvent)
+		authed.POST("/events/:id/replay", P(model.PermEventReplay), h.ReplayEvent)
+
+		// 任务
+		authed.GET("/tasks", P(model.PermTaskRead), h.ListTasks)
+		authed.GET("/tasks/:id", P(model.PermTaskRead), h.GetTask)
+		authed.POST("/tasks/:id/retry", P(model.PermTaskRetry), h.RetryTask)
+		authed.POST("/tasks/:id/cancel", P(model.PermTaskCancel), h.CancelTask)
+		authed.POST("/tasks/:id/ignore", P(model.PermTaskIgnore), h.IgnoreTask)
+		authed.POST("/tasks/:id/confirm", P(model.PermTaskConfirm), h.ConfirmTask)
+		authed.POST("/tasks/:id/reject", P(model.PermTaskConfirm), h.RejectTask)
+		authed.GET("/tasks/:id/logs", P(model.PermTaskRead), h.TaskLogs)
+		authed.GET("/tasks/:id/patch", P(model.PermTaskRead), h.TaskPatch)
+
+		// 统计
+		authed.GET("/stats/overview", P(model.PermStatsRead), h.StatsOverview)
+		authed.GET("/stats/trend", P(model.PermStatsRead), h.StatsTrend)
+		authed.GET("/stats/group", P(model.PermStatsRead), h.StatsGroup)
+
+		// 配置（dsh / git 运行参数）
+		authed.GET("/settings", P(model.PermSettingsRead), h.GetSettings)
+		authed.PUT("/settings", P(model.PermSettingsUpdate), h.UpdateSettings)
+
+		// 用户与角色（租户级）
+		authed.GET("/users", P(model.PermUserRead), h.ListUsers)
+		authed.POST("/users", P(model.PermUserCreate), h.CreateUser)
+		authed.PUT("/users/:id", P(model.PermUserUpdate), h.UpdateUser)
+		authed.DELETE("/users/:id", P(model.PermUserDelete), h.DeleteUser)
+		authed.GET("/roles", P(model.PermRoleRead), h.ListRoles)
+		authed.POST("/roles", P(model.PermRoleCreate), h.CreateRole)
+		authed.PUT("/roles/:id", P(model.PermRoleUpdate), h.UpdateRole)
+		authed.DELETE("/roles/:id", P(model.PermRoleDelete), h.DeleteRole)
+
+		// 租户（平台级）
+		authed.GET("/tenants", P(model.PermTenantRead), h.ListTenants)
+		authed.POST("/tenants", P(model.PermTenantCreate), h.CreateTenant)
+		authed.PUT("/tenants/:id", P(model.PermTenantUpdate), h.UpdateTenant)
+		authed.DELETE("/tenants/:id", P(model.PermTenantDelete), h.DeleteTenant)
+	}
+
+	// 事件投递：项目令牌鉴权（不走账号登录）
 	ing := r.Group("/api/v1/ingest")
 	{
 		h := d.Handlers
@@ -138,30 +175,11 @@ func NewRouter(d *Deps) *gin.Engine {
 		ing.POST("/events/batch", h.IngestEventBatch)
 	}
 
-	// WebSocket：任务终端
+	// WebSocket：任务终端（支持 ?token= 传参）
 	ws := r.Group("/ws")
+	ws.Use(d.Auth.Middleware())
 	{
 		ws.GET("/tasks/:id", d.Handlers.ServeTaskWS)
 	}
 	return r
-}
-
-// AdminAuth 管理接口鉴权（未配置 admin_token 时放行）
-func AdminAuth(token string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if token == "" {
-			c.Next()
-			return
-		}
-		got := c.GetHeader("X-Admin-Token")
-		if got == "" {
-			got = c.Query("admin_token")
-		}
-		if got != token {
-			Fail(c, http.StatusUnauthorized, "无效的管理令牌")
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
 }

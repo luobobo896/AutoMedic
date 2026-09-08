@@ -3,17 +3,28 @@ server:
   mode: "debug"
   # 前端构建产物目录；留空则不托管静态资源（开发模式下由 vite dev server 提供前端）
   web_dir: "../web/dist"
-  # 管理 API 鉴权令牌，前端需在请求头携带 X-Admin-Token
-  admin_token: "change-me"
+  # 管理 API 已改为账号密码登录（Bearer JWT），此令牌仅作为遗留开关保留
+  admin_token: ""
   read_timeout: 60
   write_timeout: 300
 
 db:
-  driver: "sqlite"
-  dsn: "data/automedic.db"
+  driver: "postgres"
+  dsn: "host=new.hsddns.com user=admin password=aircen123 dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai"
   max_open: 50
   max_idle: 10
   log_level: "warn"
+
+auth:
+  # 账号密码登录：JWT 签名密钥（生产环境请换成随机串并通过环境变量注入）
+  jwt_secret: "automedic-jwt-secret-change-me-32b"
+  access_token_ttl: 480    # 访问令牌有效期（分钟）
+  refresh_token_ttl: 1440  # 刷新令牌有效期（分钟）
+  bootstrap_admin:
+    username: "admin"
+    password: "admin123"
+    tenant_name: "默认租户"
+    tenant_key: "default"
 
 security:
   # 敏感字段（git 凭证、厂家 API Key）加密主密钥，至少 32 字节

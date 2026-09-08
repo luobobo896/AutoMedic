@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 // ListTasks 任务列表
 func (h *Handlers) ListTasks(c *gin.Context) {
 	var list []model.Task
-	q := h.db.Model(&model.Task{}).Preload("Repo").Preload("Project").Preload("Event").Preload("Rule").Preload("Model")
+	q := h.tdb(c).Model(&model.Task{}).Preload("Repo").Preload("Project").Preload("Event").Preload("Rule").Preload("Model")
 	if pid := c.Query("project_id"); pid != "" {
 		q = q.Where("tasks.project_id = ?", pid)
 	}
@@ -54,7 +55,7 @@ func (h *Handlers) GetTask(c *gin.Context) {
 		return
 	}
 	var t model.Task
-	if err := h.db.Preload("Repo").Preload("Project").Preload("Event").Preload("Rule").Preload("Model").
+	if err := h.tdb(c).Preload("Repo").Preload("Project").Preload("Event").Preload("Rule").Preload("Model").
 		First(&t, id).Error; err != nil {
 		NotFound(c, "任务不存在")
 		return
@@ -96,7 +97,7 @@ func (h *Handlers) TaskPatch(c *gin.Context) {
 		return
 	}
 	var t model.Task
-	if err := h.db.First(&t, id).Error; err != nil {
+	if err := h.tdb(c).First(&t, id).Error; err != nil {
 		NotFound(c, "任务不存在")
 		return
 	}
@@ -111,7 +112,7 @@ func (h *Handlers) RetryTask(c *gin.Context) {
 		return
 	}
 	var src model.Task
-	if err := h.db.Preload("Rule").First(&src, id).Error; err != nil {
+	if err := h.tdb(c).Preload("Rule").First(&src, id).Error; err != nil {
 		NotFound(c, "任务不存在")
 		return
 	}
@@ -136,7 +137,7 @@ func (h *Handlers) RetryTask(c *gin.Context) {
 	cp.Branch = ""
 	now := time.Now()
 	cp.CreatedAt, cp.UpdatedAt = now, now
-	if err := h.db.Create(&cp).Error; err != nil {
+	if err := h.tdb(c).Create(&cp).Error; err != nil {
 		ServerError(c, err)
 		return
 	}
@@ -152,7 +153,7 @@ func (h *Handlers) CancelTask(c *gin.Context) {
 	}
 	if !h.exec.Cancel(id) {
 		// 未在执行中，直接置为已取消
-		if err := h.db.Model(&model.Task{}).Where("id = ? AND status IN ?", id,
+		if err := h.tdb(c).Model(&model.Task{}).Where("id = ? AND status IN ?", id,
 			[]model.TaskStatus{model.TaskStatusPending, model.TaskStatusRunning}).
 			Updates(map[string]any{"status": model.TaskStatusCancelled, "stage": "cancelled", "finished_at": time.Now()}).Error; err != nil {
 			ServerError(c, err)
@@ -168,7 +169,7 @@ func (h *Handlers) IgnoreTask(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
-	if err := h.db.Model(&model.Task{}).Where("id = ?", id).
+	if err := h.tdb(c).Model(&model.Task{}).Where("id = ?", id).
 		Updates(map[string]any{"status": model.TaskStatusIgnored, "stage": "ignored", "finished_at": time.Now()}).Error; err != nil {
 		ServerError(c, err)
 		return
@@ -241,16 +242,16 @@ func (h *Handlers) StatsOverview(c *gin.Context) {
 		total, success, failed, ignored, confirming, pending int64
 		avg                                                  float64
 	)
-	base := h.db.Model(&model.Task{}).Where("created_at >= ?", from)
+	base := h.tdb(c).Model(&model.Task{}).Where("created_at >= ?", from)
 	base.Count(&total)
 	for st, dst := range map[model.TaskStatus]*int64{
 		model.TaskStatusSuccess: &success, model.TaskStatusFailed: &failed,
 		model.TaskStatusIgnored: &ignored, model.TaskStatusConfirming: &confirming,
 		model.TaskStatusPending: &pending,
 	} {
-		h.db.Model(&model.Task{}).Where("created_at >= ? AND status = ?", from, st).Count(dst)
+		h.tdb(c).Model(&model.Task{}).Where("created_at >= ? AND status = ?", from, st).Count(dst)
 	}
-	h.db.Model(&model.Task{}).Where("created_at >= ? AND duration_ms > 0", from).Select("COALESCE(AVG(duration_ms),0)").Scan(&avg)
+	h.tdb(c).Model(&model.Task{}).Where("created_at >= ? AND duration_ms > 0", from).Select("COALESCE(AVG(duration_ms),0)").Scan(&avg)
 
 	rate := float64(0)
 	if total > 0 {
@@ -268,7 +269,7 @@ func (h *Handlers) StatsTrend(c *gin.Context) {
 	pid := c.Query("project_id")
 	rid := c.Query("repo_id")
 	from := time.Now().AddDate(0, 0, -days+1).Truncate(24 * time.Hour)
-	rows, err := h.trend(from, pid, rid)
+	rows, err := h.trend(from, pid, rid, h.tenant(c))
 	if err != nil {
 		ServerError(c, err)
 		return
@@ -291,36 +292,40 @@ func (h *Handlers) StatsGroup(c *gin.Context) {
 		AvgMs   int64  `json:"avg_ms"`
 	}
 	var out []row
-	q := h.db.Model(&model.Task{}).Where("tasks.created_at >= ?", from)
+	q := h.tdb(c).Model(&model.Task{}).Where("tasks.created_at >= ?", from)
+	// 各分组维度的公共统计表达式（兼容 postgres / mysql / sqlite）
+	sums := fmt.Sprintf("%s as success, %s as failed, %s as ignored",
+		sumEq("tasks.status", "success"), sumEq("tasks.status", "failed"), sumEq("tasks.status", "ignored"))
+	avg := roundAvg("tasks.duration_ms")
 	switch group {
 	case "project":
-		q.Select("projects.name as name, CAST(tasks.project_id AS CHAR) as `key`, count(*) as total, " +
-			"sum(tasks.status='success') as success, sum(tasks.status='failed') as failed, " +
-			"sum(tasks.status='ignored') as ignored, COALESCE(round(avg(tasks.duration_ms)),0) as avg_ms").
-			Joins("LEFT JOIN projects ON projects.id = tasks.project_id").Group("tasks.project_id")
+		q.Select(fmt.Sprintf("projects.name as name, %s as key, count(*) as total, %s, %s as avg_ms",
+			castText("tasks.project_id"), sums, avg)).
+			Joins("LEFT JOIN projects ON projects.id = tasks.project_id").
+			Group("tasks.project_id, projects.name")
 	case "repo":
-		q.Select("repositories.name as name, CAST(tasks.repo_id AS CHAR) as `key`, count(*) as total, " +
-			"sum(tasks.status='success') as success, sum(tasks.status='failed') as failed, " +
-			"sum(tasks.status='ignored') as ignored, COALESCE(round(avg(tasks.duration_ms)),0) as avg_ms").
-			Joins("LEFT JOIN repositories ON repositories.id = tasks.repo_id").Group("tasks.repo_id")
+		q.Select(fmt.Sprintf("repositories.name as name, %s as key, count(*) as total, %s, %s as avg_ms",
+			castText("tasks.repo_id"), sums, avg)).
+			Joins("LEFT JOIN repositories ON repositories.id = tasks.repo_id").
+			Group("tasks.repo_id, repositories.name")
 	case "status":
-		q.Select("tasks.status as name, tasks.status as `key`, count(*) as total, 0 as success, 0 as failed, 0 as ignored, " +
-			"COALESCE(round(avg(tasks.duration_ms)),0) as avg_ms").Group("tasks.status")
+		q.Select(fmt.Sprintf("tasks.status as name, tasks.status as key, count(*) as total, %s, %s as avg_ms",
+			"0 as success, 0 as failed, 0 as ignored", avg)).Group("tasks.status")
 	case "rule":
-		q.Select("COALESCE(rules.name,'未命中规则') as name, COALESCE(CAST(tasks.rule_id AS CHAR),'0') as `key`, count(*) as total, " +
-			"sum(tasks.status='success') as success, sum(tasks.status='failed') as failed, " +
-			"sum(tasks.status='ignored') as ignored, COALESCE(round(avg(tasks.duration_ms)),0) as avg_ms").
-			Joins("LEFT JOIN rules ON rules.id = tasks.rule_id").Group("tasks.rule_id")
+		q.Select(fmt.Sprintf("COALESCE(rules.name,'未命中规则') as name, COALESCE(%s,'0') as key, count(*) as total, %s, %s as avg_ms",
+			castText("tasks.rule_id"), sums, avg)).
+			Joins("LEFT JOIN rules ON rules.id = tasks.rule_id").
+			Group("tasks.rule_id, rules.name")
 	case "source":
-		q.Select("COALESCE(events.source,'未知') as name, COALESCE(events.source,'未知') as `key`, count(*) as total, " +
-			"sum(tasks.status='success') as success, sum(tasks.status='failed') as failed, " +
-			"sum(tasks.status='ignored') as ignored, COALESCE(round(avg(tasks.duration_ms)),0) as avg_ms").
-			Joins("LEFT JOIN events ON events.id = tasks.event_id").Group("events.source")
+		q.Select(fmt.Sprintf("COALESCE(events.source,'未知') as name, COALESCE(events.source,'未知') as key, count(*) as total, %s, %s as avg_ms",
+			sums, avg)).
+			Joins("LEFT JOIN events ON events.id = tasks.event_id").
+			Group("events.source")
 	case "model":
-		q.Select("COALESCE(llm_models.name,'默认') as name, COALESCE(CAST(tasks.model_id AS CHAR),'0') as `key`, count(*) as total, " +
-			"sum(tasks.status='success') as success, sum(tasks.status='failed') as failed, " +
-			"sum(tasks.status='ignored') as ignored, COALESCE(round(avg(tasks.duration_ms)),0) as avg_ms").
-			Joins("LEFT JOIN llm_models ON llm_models.id = tasks.model_id").Group("tasks.model_id")
+		q.Select(fmt.Sprintf("COALESCE(llm_models.name,'默认') as name, COALESCE(%s,'0') as key, count(*) as total, %s, %s as avg_ms",
+			castText("tasks.model_id"), sums, avg)).
+			Joins("LEFT JOIN llm_models ON llm_models.id = tasks.model_id").
+			Group("tasks.model_id, llm_models.name")
 	default:
 		BadRequest(c, "不支持的分组维度")
 		return
@@ -338,7 +343,7 @@ func (h *Handlers) StatsGroup(c *gin.Context) {
 	OK(c, out)
 }
 
-func (h *Handlers) trend(from time.Time, pid, rid string) ([]trendRow, error) {
+func (h *Handlers) trend(from time.Time, pid, rid string, tenantID uint) ([]trendRow, error) {
 	type raw struct {
 		Day     string
 		Total   int64
@@ -349,13 +354,16 @@ func (h *Handlers) trend(from time.Time, pid, rid string) ([]trendRow, error) {
 		Avg     float64
 	}
 	var rows []raw
-	// 使用 created_at 日期分组；SQLite 与 MySQL 均支持 date() 字符串截取
+	// 按 created_at 日期分组；postgres 用 to_char，mysql/sqlite 用 substr 截取
 	q := h.db.Model(&model.Task{}).
-		Select("substr(created_at,1,10) as day, count(*) as total, "+
-			"sum(status='success') as success, sum(status='failed') as failed, "+
-			"sum(status='ignored') as ignored, sum(status IN ('pending','running','confirming')) as pending, "+
-			"COALESCE(avg(duration_ms),0) as avg").
+		Select(fmt.Sprintf("%s as day, count(*) as total, %s as success, %s as failed, %s as ignored, %s as pending, COALESCE(avg(duration_ms),0) as avg",
+			dayExpr("created_at"),
+			sumEq("status", "success"), sumEq("status", "failed"), sumEq("status", "ignored"),
+			sumIn("status", []string{"pending", "running", "confirming"}))).
 		Where("created_at >= ?", from)
+	if tenantID != 0 {
+		q = q.Where("tenant_id = ?", tenantID)
+	}
 	if pid != "" {
 		q = q.Where("project_id = ?", pid)
 	}

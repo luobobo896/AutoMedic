@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/automedic/automedic/internal/api"
+	"github.com/automedic/automedic/internal/auth"
 	"github.com/automedic/automedic/internal/config"
 	"github.com/automedic/automedic/internal/crypto"
 	"github.com/automedic/automedic/internal/logging"
@@ -60,10 +61,16 @@ func main() {
 		slog.Warn("初始化默认数据失败", "err", err)
 	}
 
+	if err := store.SeedRBAC(db, cfg); err != nil {
+		slog.Error("初始化租户与权限数据失败", "err", err)
+		os.Exit(1)
+	}
+
+	authSvc := auth.NewService(db, cfg)
 	hub := ws.NewHub()
 	hub.SetSource(wsSource{db: db})
 	exec := service.NewExecutor(db, cfg, crypt, hub)
-	handlers := api.NewHandlers(db, cfg, exec, crypt, hub)
+	handlers := api.NewHandlers(db, cfg, exec, crypt, hub, authSvc)
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -72,7 +79,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr,
-		Handler:      api.NewRouter(&api.Deps{Cfg: cfg, Handlers: handlers, WebDir: cfg.Server.WebDir}),
+		Handler:      api.NewRouter(&api.Deps{Cfg: cfg, Handlers: handlers, Auth: authSvc, WebDir: cfg.Server.WebDir}),
 		ReadTimeout:  time.Duration(orDefault(cfg.Server.ReadTimeout, 60)) * time.Second,
 		WriteTimeout: time.Duration(orDefault(cfg.Server.WriteTimeout, 120)) * time.Second,
 	}

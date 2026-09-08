@@ -244,7 +244,7 @@ func (h *Handlers) DeleteModel(c *gin.Context) {
 		return
 	}
 	var n int64
-	h.db.Model(&model.Task{}).Where("model_id = ?", id).Count(&n)
+	h.tdb(c).Model(&model.Task{}).Where("model_id = ?", id).Count(&n)
 	if n > 0 {
 		BadRequest(c, fmt.Sprintf("已有 %d 个任务使用该模型，建议禁用而非删除", n))
 		return
@@ -275,7 +275,7 @@ func generateToken() (string, string, error) {
 
 func (h *Handlers) ListTokens(c *gin.Context) {
 	var list []model.IngestToken
-	q := h.db.Model(&model.IngestToken{}).Preload("Project").Order("id DESC")
+	q := h.tdb(c).Model(&model.IngestToken{}).Preload("Project").Order("id DESC")
 	if pid := c.Query("project_id"); pid != "" {
 		q = q.Where("project_id = ?", pid)
 	}
@@ -307,17 +307,21 @@ func (h *Handlers) CreateToken(c *gin.Context) {
 		BadRequest(c, "项目与名称不能为空")
 		return
 	}
+	tid, ok := h.requireTenantOfProject(c, in.ProjectID)
+	if !ok {
+		return
+	}
 	raw, prefix, err := generateToken()
 	if err != nil {
 		ServerError(c, err)
 		return
 	}
 	t := &model.IngestToken{
-		ProjectID: in.ProjectID, Name: in.Name, Prefix: prefix,
+		TenantID: tid, ProjectID: in.ProjectID, Name: in.Name, Prefix: prefix,
 		TokenHash: crypto.SHA256(raw), Enabled: true,
 		ExpiresAt: in.ExpiresAt, AllowCIDR: in.AllowCIDR,
 	}
-	if err := h.db.Create(t).Error; err != nil {
+	if err := h.tdb(c).Create(t).Error; err != nil {
 		ServerError(c, err)
 		return
 	}
@@ -332,7 +336,7 @@ func (h *Handlers) UpdateToken(c *gin.Context) {
 		return
 	}
 	var t model.IngestToken
-	if err := h.db.First(&t, id).Error; err != nil {
+	if err := h.tdb(c).First(&t, id).Error; err != nil {
 		NotFound(c, "令牌不存在")
 		return
 	}
@@ -343,7 +347,7 @@ func (h *Handlers) UpdateToken(c *gin.Context) {
 	}
 	delete(body, "id")
 	delete(body, "token_hash")
-	if err := h.db.Model(&t).Updates(body).Error; err != nil {
+	if err := h.tdb(c).Model(&t).Updates(body).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
@@ -356,7 +360,7 @@ func (h *Handlers) DeleteToken(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
-	if err := h.db.Delete(&model.IngestToken{}, id).Error; err != nil {
+	if err := h.tdb(c).Delete(&model.IngestToken{}, id).Error; err != nil {
 		ServerError(c, err)
 		return
 	}

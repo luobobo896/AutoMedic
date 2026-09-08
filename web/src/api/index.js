@@ -1,15 +1,33 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import router from '@/router'
 
-const TOKEN_KEY = 'automedic_admin_token'
+const TOKEN_KEY = 'automedic_token'
+const REFRESH_KEY = 'automedic_refresh_token'
+const USER_KEY = 'automedic_user'
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY) || import.meta.env.VITE_ADMIN_TOKEN || ''
+  return localStorage.getItem(TOKEN_KEY) || ''
 }
-
-export function setToken(t) {
-  if (t) localStorage.setItem(TOKEN_KEY, t)
-  else localStorage.removeItem(TOKEN_KEY)
+export function getRefreshToken() {
+  return localStorage.getItem(REFRESH_KEY) || ''
+}
+export function setSession(token, refreshToken, user) {
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken)
+  if (user) localStorage.setItem(USER_KEY, JSON.stringify(user))
+}
+export function clearSession() {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(REFRESH_KEY)
+  localStorage.removeItem(USER_KEY)
+}
+export function cachedUser() {
+  try {
+    return JSON.parse(localStorage.getItem(USER_KEY) || 'null')
+  } catch {
+    return null
+  }
 }
 
 const http = axios.create({
@@ -18,10 +36,13 @@ const http = axios.create({
 })
 
 http.interceptors.request.use((cfg) => {
-  cfg.headers['X-Admin-Token'] = getToken()
+  const t = getToken()
+  if (t) cfg.headers.Authorization = 'Bearer ' + t
   return cfg
 })
 
+// 401 自动续期一次，失败则清理会话并跳登录
+let refreshing = null
 http.interceptors.response.use(
   (res) => {
     const data = res.data
@@ -32,13 +53,60 @@ http.interceptors.response.use(
     }
     return data
   },
-  (err) => {
+  async (err) => {
+    const status = err?.response?.status
     const msg = err?.response?.data?.message || err.message || '网络错误'
-    if (err?.response?.status === 401) ElMessage.error('管理令牌无效，请在右上角设置中更新')
-    else ElMessage.error(msg)
+    if (status === 401 && !err.config?._retry && getRefreshToken()) {
+      err.config._retry = true
+      try {
+        refreshing = refreshing || refreshToken()
+        const r = await refreshing
+        setSession(r.data.token, r.data.refresh_token, r.data.user)
+        refreshing = null
+        err.config.headers.Authorization = 'Bearer ' + r.data.token
+        return http.request(err.config)
+      } catch (e) {
+        refreshing = null
+        clearSession()
+        if (router.currentRoute.value.path !== '/login') router.replace('/login')
+      }
+    }
+    if (status === 401) {
+      clearSession()
+      if (router.currentRoute.value.path !== '/login') router.replace('/login')
+      ElMessage.error('登录已失效，请重新登录')
+    } else if (status === 403) {
+      ElMessage.error(msg || '无操作权限')
+    } else {
+      ElMessage.error(msg)
+    }
     return Promise.reject(err)
   }
 )
+
+// ---------- 认证 ----------
+export const login = (data) => http.post('/v1/auth/login', data)
+export const refreshToken = () => http.post('/v1/auth/refresh', { refresh_token: getRefreshToken() })
+export const logout = () => http.post('/v1/auth/logout', { refresh_token: getRefreshToken() })
+export const profile = () => http.get('/v1/auth/profile')
+export const changePassword = (data) => http.put('/v1/auth/password', data)
+
+// ---------- 用户 / 角色 / 租户 ----------
+export const listUsers = (params) => http.get('/v1/users', { params })
+export const createUser = (data) => http.post('/v1/users', data)
+export const updateUser = (id, data) => http.put(`/v1/users/${id}`, data)
+export const deleteUser = (id) => http.delete(`/v1/users/${id}`)
+
+export const listRoles = () => http.get('/v1/roles')
+export const createRole = (data) => http.post('/v1/roles', data)
+export const updateRole = (id, data) => http.put(`/v1/roles/${id}`, data)
+export const deleteRole = (id) => http.delete(`/v1/roles/${id}`)
+export const listPermissions = () => http.get('/v1/permissions')
+
+export const listTenants = () => http.get('/v1/tenants')
+export const createTenant = (data) => http.post('/v1/tenants', data)
+export const updateTenant = (id, data) => http.put(`/v1/tenants/${id}`, data)
+export const deleteTenant = (id) => http.delete(`/v1/tenants/${id}`)
 
 // ---------- 概览 ----------
 export const overview = () => http.get('/v1/overview')
@@ -118,9 +186,9 @@ export const updateSettings = (data) => http.put('/v1/settings', data)
 
 export function taskWSURL(taskId) {
   const base = import.meta.env.VITE_WS_BASE
-  if (base) return `${base}/ws/tasks/${taskId}`
+  if (base) return `${base}/ws/tasks/${taskId}?token=${encodeURIComponent(getToken())}`
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${location.host}/ws/tasks/${taskId}`
+  return `${proto}//${location.host}/ws/tasks/${taskId}?token=${encodeURIComponent(getToken())}`
 }
 
 export default http

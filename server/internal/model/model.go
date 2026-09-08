@@ -113,6 +113,7 @@ type BaseModel struct {
 
 // Project 项目：组织单元，可关联多个仓库
 type Project struct {
+	TenantID uint `gorm:"index;not null;default:0" json:"tenant_id"`
 	BaseModel
 	Name        string  `gorm:"size:128;not null" json:"name"`
 	Key         string  `gorm:"size:64;uniqueIndex;not null" json:"key"`
@@ -133,6 +134,7 @@ type Project struct {
 
 // Repository 仓库
 type Repository struct {
+	TenantID uint `gorm:"index;not null;default:0" json:"tenant_id"`
 	BaseModel
 	ProjectID uint   `gorm:"index;not null" json:"project_id"`
 	Name      string `gorm:"size:128;not null" json:"name"`
@@ -157,6 +159,7 @@ type Repository struct {
 
 // Credential git 凭证，可被多个项目/仓库复用
 type Credential struct {
+	TenantID uint `gorm:"index;not null;default:0" json:"tenant_id"`
 	BaseModel
 	Name string   `gorm:"size:128;not null" json:"name"`
 	Type CredType `gorm:"size:32;not null" json:"type"`
@@ -171,6 +174,7 @@ type Credential struct {
 }
 
 type CredentialUsage struct {
+	TenantID     uint      `gorm:"index;not null;default:0" json:"tenant_id"`
 	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	CredentialID uint      `gorm:"index;not null" json:"credential_id"`
 	RefType      string    `gorm:"size:32" json:"ref_type"` // repo | task
@@ -219,6 +223,7 @@ type LLMModel struct {
 
 // IngestToken 外部日志采集器投递令牌
 type IngestToken struct {
+	TenantID uint `gorm:"index;not null;default:0" json:"tenant_id"`
 	BaseModel
 	ProjectID  uint       `gorm:"index;not null" json:"project_id"`
 	Name       string     `gorm:"size:128;not null" json:"name"`
@@ -235,6 +240,7 @@ type IngestToken struct {
 
 // Event 生产事件
 type Event struct {
+	TenantID uint `gorm:"index;not null;default:0" json:"tenant_id"`
 	BaseModel
 	ProjectID uint   `gorm:"index;not null" json:"project_id"`
 	TokenID   *uint  `json:"token_id"`
@@ -259,6 +265,7 @@ type Event struct {
 
 // Rule 规则：决定告警是否进入修复流程
 type Rule struct {
+	TenantID uint `gorm:"index;not null;default:0" json:"tenant_id"`
 	BaseModel
 	ProjectID uint   `gorm:"index;not null" json:"project_id"`
 	Name      string `gorm:"size:128;not null" json:"name"`
@@ -294,6 +301,7 @@ type Rule struct {
 
 // Task 修复任务
 type Task struct {
+	TenantID uint `gorm:"index;not null;default:0" json:"tenant_id"`
 	BaseModel
 	EventID   *uint `gorm:"index" json:"event_id"`
 	ProjectID uint  `gorm:"index;not null" json:"project_id"`
@@ -366,6 +374,7 @@ type Setting struct {
 
 // ReviewJob 仓库上手动触发的 OCR 审查（不改代码）
 type ReviewJob struct {
+	TenantID uint `gorm:"index;not null;default:0" json:"tenant_id"`
 	BaseModel
 	ProjectID  uint         `gorm:"index;not null" json:"project_id"`
 	RepoID     uint         `gorm:"index;not null" json:"repo_id"`
@@ -389,6 +398,7 @@ type ReviewJob struct {
 
 func All() []any {
 	return []any{
+		&Tenant{}, &User{}, &Role{}, &RolePermission{}, &UserRole{}, &AuthToken{},
 		&Project{}, &Repository{}, &Credential{}, &CredentialUsage{},
 		&Provider{}, &LLMModel{}, &IngestToken{}, &Event{}, &Rule{},
 		&Task{}, &TaskLog{}, &Setting{}, &ReviewJob{},

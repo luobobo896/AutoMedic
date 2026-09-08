@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/automedic/automedic/internal/auth"
 	"github.com/automedic/automedic/internal/config"
 	"github.com/automedic/automedic/internal/crypto"
 	"github.com/automedic/automedic/internal/model"
@@ -20,10 +21,11 @@ type Handlers struct {
 	exec  *service.Executor
 	crypt *crypto.Service
 	hub   *ws.Hub
+	auth  *auth.Service
 }
 
-func NewHandlers(db *gorm.DB, cfg *config.Config, exec *service.Executor, crypt *crypto.Service, hub *ws.Hub) *Handlers {
-	return &Handlers{db: db, cfg: cfg, exec: exec, crypt: crypt, hub: hub}
+func NewHandlers(db *gorm.DB, cfg *config.Config, exec *service.Executor, crypt *crypto.Service, hub *ws.Hub, authSvc *auth.Service) *Handlers {
+	return &Handlers{db: db, cfg: cfg, exec: exec, crypt: crypt, hub: hub, auth: authSvc}
 }
 
 // Overview 首页概览
@@ -33,24 +35,24 @@ func (h *Handlers) Overview(c *gin.Context) {
 		total, pending, running, confirming, success, failed, ignored int64
 		todayTotal, todaySuccess                                      int64
 	)
-	h.db.Model(&model.Project{}).Count(&projectCount)
-	h.db.Model(&model.Repository{}).Count(&repoCount)
-	h.db.Model(&model.Event{}).Count(&eventCount)
-	h.db.Model(&model.Task{}).Count(&total)
+	h.tdb(c).Model(&model.Project{}).Count(&projectCount)
+	h.tdb(c).Model(&model.Repository{}).Count(&repoCount)
+	h.tdb(c).Model(&model.Event{}).Count(&eventCount)
+	h.tdb(c).Model(&model.Task{}).Count(&total)
 	countBy := func(st model.TaskStatus) int64 {
 		var n int64
-		h.db.Model(&model.Task{}).Where("status = ?", st).Count(&n)
+		h.tdb(c).Model(&model.Task{}).Where("status = ?", st).Count(&n)
 		return n
 	}
 	pending, running, confirming = countBy(model.TaskStatusPending), countBy(model.TaskStatusRunning), countBy(model.TaskStatusConfirming)
 	success, failed, ignored = countBy(model.TaskStatusSuccess), countBy(model.TaskStatusFailed), countBy(model.TaskStatusIgnored)
 
 	today := time.Now().Truncate(24 * time.Hour)
-	h.db.Model(&model.Task{}).Where("created_at >= ?", today).Count(&todayTotal)
-	h.db.Model(&model.Task{}).Where("created_at >= ? AND status = ?", today, model.TaskStatusSuccess).Count(&todaySuccess)
+	h.tdb(c).Model(&model.Task{}).Where("created_at >= ?", today).Count(&todayTotal)
+	h.tdb(c).Model(&model.Task{}).Where("created_at >= ? AND status = ?", today, model.TaskStatusSuccess).Count(&todaySuccess)
 
 	var avg float64
-	h.db.Model(&model.Task{}).Where("duration_ms > 0").Select("COALESCE(AVG(duration_ms),0)").Scan(&avg)
+	h.tdb(c).Model(&model.Task{}).Where("duration_ms > 0").Select("COALESCE(AVG(duration_ms),0)").Scan(&avg)
 
 	OK(c, gin.H{
 		"projects": projectCount,

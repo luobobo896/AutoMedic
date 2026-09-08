@@ -2,7 +2,14 @@
 
 ## 项目定位
 事件驱动的 **DeepSeek Harness（dsh）** 全自动/半自动 Bug 修复平台。
-后端 Go 1.23（Gin + GORM + SQLite/MySQL），前端 Vue3 + Element Plus + ECharts。
+后端 Go 1.23（Gin + GORM + PostgreSQL），前端 Vue3 + Element Plus + ECharts。
+
+## 认证与多租户（2026-09-08 起）
+- 登录：账号密码 → JWT（access + refresh 双令牌，refresh 存 `auth_tokens` 可吊销）。鉴权头 `Authorization: Bearer <jwt>`，WS 走 `?token=`。
+- 多租户：业务数据（Project/Repo/Credential/Rule/Event/Task/IngestToken/ReviewJob/CredentialUsage）带 `tenant_id`；模型配置（Provider/LLMModel）全局共享。
+- RBAC：权限码 `资源:动作` 目录在 `model/rbac.go`；内置角色 super_admin/tenant_admin/developer/viewer。超管可 `X-Tenant-ID` 跨租户。
+- api 层统一用 `h.tdb(c)` 加租户过滤；`internal/auth` 提供 Middleware + RequirePerm。
+- 默认账号 admin/admin123（`auth.bootstrap_admin` 可配），首次启动自动建默认租户 + 角色 + 权限。
 
 ## 硬性约束（不可违反）
 1. **只调用官方 CLI `dsh --profile headless`**，不 import dsh 内部包、不内嵌 dsh Web UI。
@@ -24,6 +31,8 @@
 - 本机 dsh 由 fnm 的 node v25.9.0 全局安装，路径 `~/.local/share/fnm/node-versions/v25.9.0/installation/bin/dsh`，需在 `dsh.env` 的 PATH 中。
 - **dsh 官方 npm 包名：`@deepseek-ai/dsh`**（scope 带 `-ai`，latest 0.1.2-rc.1）。`@deepseek/dsh` / `dsh` 均非官方包，禁止使用。
 - 本机 docker（OrbStack）可用；mysql client `/opt/homebrew/opt/mysql-client/bin/mysql`，无 mysqld（验证 MySQL 用 docker 起容器）。
+- **生产库 PostgreSQL**：`new.hsddns.com:5432` 账号 admin，库 automedic。DSN 见 config.yaml。建库需 `TEMPLATE template0`（template1 有 collation 版本不匹配报错）。
+- SQL 方言适配在 `internal/api/dialect.go`（`sum(case when…)`/`to_char`/`::text`），`store.Dialect` 记录当前驱动。
 
 ## 测试
 - `./scripts/test.sh` = `go vet ./...` + `go test ./...`，参数透传给 go test。

@@ -56,6 +56,7 @@ func (e *Executor) StartRepoReview(ctx context.Context, repo *model.Repository, 
 	}
 
 	job := &model.ReviewJob{
+		TenantID:  repo.TenantID,
 		ProjectID: repo.ProjectID,
 		RepoID:    repo.ID,
 		Status:    model.ReviewStatusPending,
@@ -306,6 +307,7 @@ func (e *Executor) createOCRFixTask(project *model.Project, repo *model.Reposito
 		"to":            job.ToRef,
 	}
 	ev := &model.Event{
+		TenantID:    repo.TenantID,
 		ProjectID:   project.ID,
 		Source:      "ocr",
 		Level:       level,
@@ -322,6 +324,7 @@ func (e *Executor) createOCRFixTask(project *model.Project, repo *model.Reposito
 		return 0, err
 	}
 	task := &model.Task{
+		TenantID:  repo.TenantID,
 		EventID:   &ev.ID,
 		ProjectID: project.ID,
 		RepoID:    repo.ID,

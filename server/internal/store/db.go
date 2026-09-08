@@ -12,16 +12,25 @@ import (
 	"github.com/automedic/automedic/internal/model"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
+// Dialect 当前数据库方言：postgres | mysql | sqlite，供手写 SQL 做兼容分支
+var Dialect = "sqlite"
+
 func Open(cfg *config.Config) (*gorm.DB, error) {
 	var dialector gorm.Dialector
 	switch strings.ToLower(cfg.DB.Driver) {
+	case "postgres", "postgresql", "pg":
+		Dialect = "postgres"
+		dialector = postgres.Open(cfg.DB.DSN)
 	case "mysql":
+		Dialect = "mysql"
 		dialector = mysql.Open(cfg.DB.DSN)
 	case "sqlite", "sqlite3", "":
+		Dialect = "sqlite"
 		if dir := filepath.Dir(cfg.DB.DSN); dir != "" && dir != "." {
 			_ = os.MkdirAll(dir, 0o755)
 		}

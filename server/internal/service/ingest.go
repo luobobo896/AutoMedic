@@ -39,6 +39,10 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 		return nil, errors.New("title 与 message 不能同时为空")
 	}
 	now := time.Now()
+	// 租户归属：跟随项目（事件与任务均继承）
+	var proj model.Project
+	_ = db.Select("id", "tenant_id").First(&proj, projectID).Error
+	tenantID := proj.TenantID
 	occurred := now
 	if input.OccurredAt != nil {
 		occurred = *input.OccurredAt
@@ -53,6 +57,7 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 	}
 
 	ev := &model.Event{
+		TenantID:    tenantID,
 		ProjectID:   projectID,
 		TokenID:     tokenID,
 		Source:      defaultStr(input.Source, "custom"),
@@ -136,6 +141,7 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 
 	for i := range repos {
 		task := &model.Task{
+			TenantID:  tenantID,
 			EventID:   &ev.ID,
 			ProjectID: projectID,
 			RepoID:    repos[i].ID,

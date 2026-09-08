@@ -139,7 +139,7 @@ func cidrAllow(list, ip string) bool {
 // ListEvents 事件列表
 func (h *Handlers) ListEvents(c *gin.Context) {
 	var list []model.Event
-	q := h.db.Model(&model.Event{}).Preload("Project").Preload("Rule")
+	q := h.tdb(c).Model(&model.Event{}).Preload("Project").Preload("Rule")
 	if pid := c.Query("project_id"); pid != "" {
 		q = q.Where("project_id = ?", pid)
 	}
@@ -183,12 +183,12 @@ func (h *Handlers) GetEvent(c *gin.Context) {
 		return
 	}
 	var ev model.Event
-	if err := h.db.Preload("Project").Preload("Rule").First(&ev, id).Error; err != nil {
+	if err := h.tdb(c).Preload("Project").Preload("Rule").First(&ev, id).Error; err != nil {
 		NotFound(c, "事件不存在")
 		return
 	}
 	var tasks []model.Task
-	h.db.Preload("Repo").Where("event_id = ?", id).Order("id DESC").Find(&tasks)
+	h.tdb(c).Preload("Repo").Where("event_id = ?", id).Order("id DESC").Find(&tasks)
 	OK(c, gin.H{"event": ev, "tasks": tasks})
 }
 
@@ -200,7 +200,7 @@ func (h *Handlers) ReplayEvent(c *gin.Context) {
 		return
 	}
 	var ev model.Event
-	if err := h.db.First(&ev, id).Error; err != nil {
+	if err := h.tdb(c).First(&ev, id).Error; err != nil {
 		NotFound(c, "事件不存在")
 		return
 	}
@@ -211,7 +211,7 @@ func (h *Handlers) ReplayEvent(c *gin.Context) {
 	}
 	// 复放不计入指纹冷却判定，使用新指纹
 	in.Fingerprint = service.Fingerprint("replay", ev.Fingerprint, time.Now().Format(time.RFC3339Nano))
-	res, err := service.Ingest(h.db, ev.ProjectID, nil, in)
+	res, err := service.Ingest(h.tdb(c), ev.ProjectID, nil, in)
 	if err != nil {
 		BadRequest(c, err)
 		return

@@ -17,7 +17,7 @@ import (
 
 func (h *Handlers) ListProjects(c *gin.Context) {
 	var list []model.Project
-	q := h.db.Model(&model.Project{})
+	q := h.tdb(c).Model(&model.Project{})
 	if kw := c.Query("keyword"); kw != "" {
 		q = q.Where("name LIKE ? OR key LIKE ?", "%"+kw+"%", "%"+kw+"%")
 	}
@@ -28,7 +28,7 @@ func (h *Handlers) ListProjects(c *gin.Context) {
 		ProjectID uint `gorm:"column:project_id"`
 		Cnt       int64
 	}
-	h.db.Model(&model.Repository{}).Select("project_id, count(*) as cnt").Group("project_id").Scan(&repos)
+	h.tdb(c).Model(&model.Repository{}).Select("project_id, count(*) as cnt").Group("project_id").Scan(&repos)
 	if err := q.Order("id DESC").Offset((page - 1) * size).Limit(size).Find(&list).Error; err != nil {
 		ServerError(c, err)
 		return
@@ -56,7 +56,8 @@ func (h *Handlers) CreateProject(c *gin.Context) {
 	if p.FixMode == "" {
 		p.FixMode = model.FixModeSemi
 	}
-	if err := h.db.Create(&p).Error; err != nil {
+	p.TenantID = h.tenant(c)
+	if err := h.tdb(c).Create(&p).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
@@ -70,16 +71,16 @@ func (h *Handlers) GetProject(c *gin.Context) {
 		return
 	}
 	var p model.Project
-	if err := h.db.First(&p, id).Error; err != nil {
+	if err := h.tdb(c).First(&p, id).Error; err != nil {
 		NotFound(c, "项目不存在")
 		return
 	}
 	var repos []model.Repository
-	h.db.Preload("Credential").Where("project_id = ?", id).Find(&repos)
+	h.tdb(c).Preload("Credential").Where("project_id = ?", id).Find(&repos)
 	var rules []model.Rule
-	h.db.Where("project_id = ?", id).Order("priority DESC, id ASC").Find(&rules)
+	h.tdb(c).Where("project_id = ?", id).Order("priority DESC, id ASC").Find(&rules)
 	var tokens []model.IngestToken
-	h.db.Where("project_id = ?", id).Order("id DESC").Find(&tokens)
+	h.tdb(c).Where("project_id = ?", id).Order("id DESC").Find(&tokens)
 	for i := range tokens {
 		tokens[i].TokenHash = ""
 	}
@@ -93,7 +94,7 @@ func (h *Handlers) UpdateProject(c *gin.Context) {
 		return
 	}
 	var p model.Project
-	if err := h.db.First(&p, id).Error; err != nil {
+	if err := h.tdb(c).First(&p, id).Error; err != nil {
 		NotFound(c, "项目不存在")
 		return
 	}
@@ -103,7 +104,7 @@ func (h *Handlers) UpdateProject(c *gin.Context) {
 		return
 	}
 	delete(body, "id")
-	if err := h.db.Model(&p).Updates(body).Error; err != nil {
+	if err := h.tdb(c).Model(&p).Updates(body).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
@@ -116,7 +117,7 @@ func (h *Handlers) DeleteProject(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
-	if err := h.db.Transaction(func(tx *gorm.DB) error {
+	if err := h.tdb(c).Transaction(func(tx *gorm.DB) error {
 		tx.Where("project_id = ?", id).Delete(&model.Repository{})
 		tx.Where("project_id = ?", id).Delete(&model.Rule{})
 		tx.Where("project_id = ?", id).Delete(&model.IngestToken{})
@@ -132,7 +133,7 @@ func (h *Handlers) DeleteProject(c *gin.Context) {
 
 func (h *Handlers) ListRepos(c *gin.Context) {
 	var list []model.Repository
-	q := h.db.Model(&model.Repository{}).Preload("Credential")
+	q := h.tdb(c).Model(&model.Repository{}).Preload("Credential")
 	if pid := c.Query("project_id"); pid != "" {
 		q = q.Where("project_id = ?", pid)
 	}
@@ -159,7 +160,12 @@ func (h *Handlers) CreateRepo(c *gin.Context) {
 	if r.Branch == "" {
 		r.Branch = "main"
 	}
-	if err := h.db.Create(&r).Error; err != nil {
+	tid, ok := h.requireTenantOfProject(c, r.ProjectID)
+	if !ok {
+		return
+	}
+	r.TenantID = tid
+	if err := h.tdb(c).Create(&r).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
@@ -173,7 +179,7 @@ func (h *Handlers) GetRepo(c *gin.Context) {
 		return
 	}
 	var r model.Repository
-	if err := h.db.Preload("Credential").Preload("Project").First(&r, id).Error; err != nil {
+	if err := h.tdb(c).Preload("Credential").Preload("Project").First(&r, id).Error; err != nil {
 		NotFound(c, "仓库不存在")
 		return
 	}
@@ -187,7 +193,7 @@ func (h *Handlers) UpdateRepo(c *gin.Context) {
 		return
 	}
 	var r model.Repository
-	if err := h.db.First(&r, id).Error; err != nil {
+	if err := h.tdb(c).First(&r, id).Error; err != nil {
 		NotFound(c, "仓库不存在")
 		return
 	}
@@ -197,7 +203,7 @@ func (h *Handlers) UpdateRepo(c *gin.Context) {
 		return
 	}
 	delete(body, "id")
-	if err := h.db.Model(&r).Updates(body).Error; err != nil {
+	if err := h.tdb(c).Model(&r).Updates(body).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
@@ -210,7 +216,7 @@ func (h *Handlers) DeleteRepo(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
-	if err := h.db.Delete(&model.Repository{}, id).Error; err != nil {
+	if err := h.tdb(c).Delete(&model.Repository{}, id).Error; err != nil {
 		ServerError(c, err)
 		return
 	}
@@ -225,14 +231,14 @@ func (h *Handlers) TestRepo(c *gin.Context) {
 		return
 	}
 	var r model.Repository
-	if err := h.db.Preload("Credential").Preload("Project").First(&r, id).Error; err != nil {
+	if err := h.tdb(c).Preload("Credential").Preload("Project").First(&r, id).Error; err != nil {
 		NotFound(c, "仓库不存在")
 		return
 	}
 	start := time.Now()
 	err := h.exec.TestRepo(c.Request.Context(), &r)
 	usage := model.CredentialUsage{
-		RefType: "repo", RefID: r.ID, Action: "test", CreatedAt: time.Now(),
+		TenantID: r.TenantID, RefType: "repo", RefID: r.ID, Action: "test", CreatedAt: time.Now(),
 	}
 	if r.CredentialID != nil {
 		usage.CredentialID = *r.CredentialID
@@ -240,13 +246,13 @@ func (h *Handlers) TestRepo(c *gin.Context) {
 	if err != nil {
 		usage.Result = "fail"
 		usage.Message = err.Error()
-		h.db.Create(&usage)
+		h.tdb(c).Create(&usage)
 		Fail(c, 500, "连通性测试失败："+err.Error())
 		return
 	}
 	usage.Result = "ok"
 	usage.Message = fmt.Sprintf("耗时 %dms", time.Since(start).Milliseconds())
-	h.db.Create(&usage)
+	h.tdb(c).Create(&usage)
 	OK(c, gin.H{"ok": true, "cost_ms": time.Since(start).Milliseconds()})
 }
 
@@ -257,7 +263,7 @@ func (h *Handlers) loadRepo(c *gin.Context) (*model.Repository, bool) {
 		return nil, false
 	}
 	var r model.Repository
-	if err := h.db.Preload("Credential").Preload("Project").First(&r, id).Error; err != nil {
+	if err := h.tdb(c).Preload("Credential").Preload("Project").First(&r, id).Error; err != nil {
 		NotFound(c, "仓库不存在")
 		return nil, false
 	}
@@ -265,7 +271,7 @@ func (h *Handlers) loadRepo(c *gin.Context) (*model.Repository, bool) {
 }
 
 func (h *Handlers) recordRepoUsage(r *model.Repository, action, result, message string) {
-	usage := model.CredentialUsage{RefType: "repo", RefID: r.ID, Action: action, Result: result, Message: message, CreatedAt: time.Now()}
+	usage := model.CredentialUsage{TenantID: r.TenantID, RefType: "repo", RefID: r.ID, Action: action, Result: result, Message: message, CreatedAt: time.Now()}
 	if r.CredentialID != nil {
 		usage.CredentialID = *r.CredentialID
 	}
@@ -407,7 +413,7 @@ type credIn struct {
 
 func (h *Handlers) ListCredentials(c *gin.Context) {
 	var list []model.Credential
-	if err := h.db.Order("id DESC").Find(&list).Error; err != nil {
+	if err := h.tdb(c).Order("id DESC").Find(&list).Error; err != nil {
 		ServerError(c, err)
 		return
 	}
@@ -423,13 +429,13 @@ func (h *Handlers) ListCredentials(c *gin.Context) {
 		secret, _ := h.crypt.Decrypt(cd.SecretEnc)
 		it := item{Credential: cd, SecretMasked: mask(secret)}
 		var repos []model.Repository
-		h.db.Where("credential_id = ?", cd.ID).Find(&repos)
+		h.tdb(c).Where("credential_id = ?", cd.ID).Find(&repos)
 		for _, r := range repos {
 			it.UsedBy = append(it.UsedBy, "仓库:"+r.Name)
 		}
-		h.db.Model(&model.CredentialUsage{}).Where("credential_id = ?", cd.ID).Count(&it.UseCount)
+		h.tdb(c).Model(&model.CredentialUsage{}).Where("credential_id = ?", cd.ID).Count(&it.UseCount)
 		var last model.CredentialUsage
-		if err := h.db.Where("credential_id = ?", cd.ID).Order("id DESC").First(&last).Error; err == nil {
+		if err := h.tdb(c).Where("credential_id = ?", cd.ID).Order("id DESC").First(&last).Error; err == nil {
 			it.LastUsedAt = &last.CreatedAt
 		}
 		out = append(out, it)
@@ -448,7 +454,8 @@ func (h *Handlers) CreateCredential(c *gin.Context) {
 		BadRequest(c, err)
 		return
 	}
-	if err := h.db.Create(cd).Error; err != nil {
+	cd.TenantID = h.tenant(c)
+	if err := h.tdb(c).Create(cd).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
@@ -462,7 +469,7 @@ func (h *Handlers) GetCredential(c *gin.Context) {
 		return
 	}
 	var cd model.Credential
-	if err := h.db.First(&cd, id).Error; err != nil {
+	if err := h.tdb(c).First(&cd, id).Error; err != nil {
 		NotFound(c, "凭证不存在")
 		return
 	}
@@ -477,7 +484,7 @@ func (h *Handlers) UpdateCredential(c *gin.Context) {
 		return
 	}
 	var cd model.Credential
-	if err := h.db.First(&cd, id).Error; err != nil {
+	if err := h.tdb(c).First(&cd, id).Error; err != nil {
 		NotFound(c, "凭证不存在")
 		return
 	}
@@ -517,7 +524,7 @@ func (h *Handlers) UpdateCredential(c *gin.Context) {
 		}
 		cd.PassphraseEnc = enc
 	}
-	if err := h.db.Save(&cd).Error; err != nil {
+	if err := h.tdb(c).Save(&cd).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
@@ -531,12 +538,12 @@ func (h *Handlers) DeleteCredential(c *gin.Context) {
 		return
 	}
 	var n int64
-	h.db.Model(&model.Repository{}).Where("credential_id = ?", id).Count(&n)
+	h.tdb(c).Model(&model.Repository{}).Where("credential_id = ?", id).Count(&n)
 	if n > 0 {
 		BadRequest(c, fmt.Sprintf("仍有 %d 个仓库引用该凭证，请先解除引用", n))
 		return
 	}
-	if err := h.db.Delete(&model.Credential{}, id).Error; err != nil {
+	if err := h.tdb(c).Delete(&model.Credential{}, id).Error; err != nil {
 		ServerError(c, err)
 		return
 	}
@@ -545,7 +552,7 @@ func (h *Handlers) DeleteCredential(c *gin.Context) {
 
 func (h *Handlers) ListCredentialUsages(c *gin.Context) {
 	var list []model.CredentialUsage
-	q := h.db.Model(&model.CredentialUsage{}).Preload("Credential").Order("id DESC")
+	q := h.tdb(c).Model(&model.CredentialUsage{}).Preload("Credential").Order("id DESC")
 	if cid := c.Query("credential_id"); cid != "" {
 		q = q.Where("credential_id = ?", cid)
 	}

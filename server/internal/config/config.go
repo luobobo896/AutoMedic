@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	DB       DBConfig       `yaml:"db"`
+	Auth     AuthConfig     `yaml:"auth"`
 	Security SecurityConfig `yaml:"security"`
 	DSH      DSHConfig      `yaml:"dsh"`
 	OCR      OCRConfig      `yaml:"ocr"`
@@ -28,11 +29,32 @@ type ServerConfig struct {
 }
 
 type DBConfig struct {
-	Driver   string `yaml:"driver"` // mysql | sqlite
-	DSN      string `yaml:"dsn"`    // mysql: user:pass@tcp(127.0.0.1:3306)/automedic?charset=utf8mb4&parseTime=True&loc=Local
+	Driver string `yaml:"driver"` // postgres | mysql | sqlite
+	DSN    string `yaml:"dsn"`    // postgres: host=127.0.0.1 user=automedic password=xxx dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai
+	//      mysql: user:pass@tcp(127.0.0.1:3306)/automedic?charset=utf8mb4&parseTime=True&loc=Local
 	MaxOpen  int    `yaml:"max_open"`
 	MaxIdle  int    `yaml:"max_idle"`
 	LogLevel string `yaml:"log_level"` // silent | error | warn | info
+}
+
+// AuthConfig 账号密码登录与 RBAC
+type AuthConfig struct {
+	// JWT 签名密钥；为空则回退使用 security.secret_key
+	JWTSecret string `yaml:"jwt_secret"`
+	// 访问令牌有效期（分钟），默认 480
+	AccessTokenTTL int `yaml:"access_token_ttl"`
+	// 刷新令牌有效期（分钟），默认 1440
+	RefreshTokenTTL int `yaml:"refresh_token_ttl"`
+	// 首次启动时创建的超级管理员账号
+	BootstrapAdmin BootstrapAdmin `yaml:"bootstrap_admin"`
+}
+
+type BootstrapAdmin struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	// 默认租户名称（超管归属）
+	TenantName string `yaml:"tenant_name"`
+	TenantKey  string `yaml:"tenant_key"`
 }
 
 type SecurityConfig struct {
@@ -115,11 +137,21 @@ func Default() *Config {
 			WriteTimeout: 120,
 		},
 		DB: DBConfig{
-			Driver:   "sqlite",
-			DSN:      "data/automedic.db",
+			Driver:   "postgres",
+			DSN:      "host=127.0.0.1 user=automedic password=automedic dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai",
 			MaxOpen:  50,
 			MaxIdle:  10,
 			LogLevel: "warn",
+		},
+		Auth: AuthConfig{
+			AccessTokenTTL:  480,  // 8 小时
+			RefreshTokenTTL: 1440, // 24 小时
+			BootstrapAdmin: BootstrapAdmin{
+				Username:   "admin",
+				Password:   "admin123",
+				TenantName: "默认租户",
+				TenantKey:  "default",
+			},
 		},
 		Security: SecurityConfig{},
 		DSH: DSHConfig{
@@ -206,6 +238,9 @@ func applyEnv(cfg *Config) {
 	set(&cfg.Server.AdminToken, "SERVER_ADMIN_TOKEN")
 	set(&cfg.DB.Driver, "DB_DRIVER")
 	set(&cfg.DB.DSN, "DB_DSN")
+	set(&cfg.Auth.JWTSecret, "AUTH_JWT_SECRET")
+	set(&cfg.Auth.BootstrapAdmin.Username, "AUTH_BOOTSTRAP_USERNAME")
+	set(&cfg.Auth.BootstrapAdmin.Password, "AUTH_BOOTSTRAP_PASSWORD")
 	set(&cfg.Security.SecretKey, "SECURITY_SECRET_KEY")
 	set(&cfg.Security.SecretKeyFile, "SECURITY_SECRET_KEY_FILE")
 	set(&cfg.DSH.Bin, "DSH_BIN")
@@ -230,6 +265,17 @@ func (c *Config) ResolveSecretKey() ([]byte, error) {
 		return []byte(padOrTrim(strings.TrimSpace(string(b)))), nil
 	}
 	return nil, errNoKey
+}
+
+// ResolveJWTSecret JWT 签名密钥：auth.jwt_secret 优先，回退 security.secret_key
+func (c *Config) ResolveJWTSecret() []byte {
+	if c.Auth.JWTSecret != "" {
+		return []byte(padOrTrim(c.Auth.JWTSecret))
+	}
+	if c.Security.SecretKey != "" {
+		return []byte(padOrTrim(c.Security.SecretKey + "-jwt"))
+	}
+	return []byte("automedic-default-jwt-secret-please-change!!")
 }
 
 var errNoKey = &ConfigError{Msg: "security.secret_key 未配置（或设置 AUTOMEDIC_SECURITY_SECRET_KEY）"}
