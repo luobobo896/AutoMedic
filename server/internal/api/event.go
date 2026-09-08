@@ -211,7 +211,7 @@ func (h *Handlers) ReplayEvent(c *gin.Context) {
 	}
 	// 复放不计入指纹冷却判定，使用新指纹
 	in.Fingerprint = service.Fingerprint("replay", ev.Fingerprint, time.Now().Format(time.RFC3339Nano))
-	res, err := service.Ingest(h.tdb(c), ev.ProjectID, nil, in)
+	res, err := service.Ingest(h.db, ev.ProjectID, nil, in)
 	if err != nil {
 		BadRequest(c, err)
 		return

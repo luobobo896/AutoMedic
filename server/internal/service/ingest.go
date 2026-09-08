@@ -38,10 +38,16 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 	if strings.TrimSpace(input.Title) == "" && strings.TrimSpace(input.Message) == "" {
 		return nil, errors.New("title 与 message 不能同时为空")
 	}
+	// 调用方可能传入带 Where 的会话（如租户过滤）。项目查询必须用独立 Session，
+	// 否则 Select 会粘在后续 Create/Save 上，把空 name 写进 projects。
+	db = db.Session(&gorm.Session{})
 	now := time.Now()
-	// 租户归属：跟随项目（事件与任务均继承）
 	var proj model.Project
-	_ = db.Select("id", "tenant_id").First(&proj, projectID).Error
+	if err := db.Session(&gorm.Session{}).
+		Select("id", "tenant_id", "fix_mode", "default_model_id").
+		First(&proj, projectID).Error; err != nil {
+		return nil, errors.New("项目不存在")
+	}
 	tenantID := proj.TenantID
 	occurred := now
 	if input.OccurredAt != nil {
@@ -79,7 +85,7 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 	if m == nil {
 		ev.Status = model.EventStatusIgnored
 		ev.DisposeMsg = truncate(why, 500)
-		db.Save(ev)
+		saveEvent(db, ev)
 		res.Action = "ignore"
 		res.Reason = why
 		slog.Info("event ignored", "event", ev.ID, "reason", why)
@@ -92,7 +98,7 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 	if rule.Action == "ignore" {
 		ev.Status = model.EventStatusIgnored
 		ev.DisposeMsg = "规则动作=忽略：" + rule.Name
-		db.Save(ev)
+		saveEvent(db, ev)
 		res.Action = "ignore"
 		res.Reason = ev.DisposeMsg
 		return res, nil
@@ -104,7 +110,7 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 		if n < int64(rule.MinCount) {
 			ev.Status = model.EventStatusDropped
 			ev.DisposeMsg = fmt.Sprintf("窗口内出现 %d 次，未达阈值 %d", n, rule.MinCount)
-			db.Save(ev)
+			saveEvent(db, ev)
 			res.Action = "dropped"
 			res.Reason = ev.DisposeMsg
 			return res, nil
@@ -116,7 +122,7 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 		if has, t := HasRecentTask(db, projectID, fp, now.Add(-time.Duration(rule.CooldownSec)*time.Second)); has {
 			ev.Status = model.EventStatusDropped
 			ev.DisposeMsg = fmt.Sprintf("冷却中，最近任务 #%d", t.ID)
-			db.Save(ev)
+			saveEvent(db, ev)
 			res.Action = "dropped"
 			res.Reason = ev.DisposeMsg
 			return res, nil
@@ -130,14 +136,11 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 	if len(repos) == 0 {
 		ev.Status = model.EventStatusDropped
 		ev.DisposeMsg = "未找到可用的关联仓库"
-		db.Save(ev)
+		saveEvent(db, ev)
 		res.Action = "dropped"
 		res.Reason = ev.DisposeMsg
 		return res, nil
 	}
-
-	var project model.Project
-	_ = db.First(&project, projectID).Error
 
 	for i := range repos {
 		task := &model.Task{
@@ -147,15 +150,15 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 			RepoID:    repos[i].ID,
 			RuleID:    &rule.ID,
 			Status:    model.TaskStatusPending,
-			Mode:      resolveMode(project.FixMode, rule.FixMode),
+			Mode:      resolveMode(proj.FixMode, rule.FixMode),
 			Stage:     "pending",
 		}
 		if rule.ModelID != nil {
 			task.ModelID = rule.ModelID
 		} else if repos[i].ModelID != nil {
 			task.ModelID = repos[i].ModelID
-		} else if project.DefaultModelID != nil {
-			task.ModelID = project.DefaultModelID
+		} else if proj.DefaultModelID != nil {
+			task.ModelID = proj.DefaultModelID
 		}
 		if err := db.Create(task).Error; err != nil {
 			return nil, err
@@ -165,11 +168,22 @@ func Ingest(db *gorm.DB, projectID uint, tokenID *uint, input *IngestInput) (*In
 
 	ev.Status = model.EventStatusMatched
 	ev.DisposeMsg = fmt.Sprintf("%s；生成 %d 个修复任务", m.Reason, len(res.TaskIDs))
-	db.Save(ev)
+	saveEvent(db, ev)
 	res.Action = "fix"
 	res.Reason = ev.DisposeMsg
 	slog.Info("event matched", "event", ev.ID, "rule", rule.ID, "tasks", res.TaskIDs)
 	return res, nil
+}
+
+func saveEvent(db *gorm.DB, ev *model.Event) {
+	if ev == nil || ev.ID == 0 {
+		return
+	}
+	_ = db.Model(&model.Event{}).Where("id = ?", ev.ID).Updates(map[string]any{
+		"status":      ev.Status,
+		"dispose_msg": ev.DisposeMsg,
+		"rule_id":     ev.RuleID,
+	}).Error
 }
 
 func pickRepos(db *gorm.DB, projectID uint, rule *model.Rule, hint string) ([]model.Repository, error) {
