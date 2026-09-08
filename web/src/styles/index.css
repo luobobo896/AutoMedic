@@ -28,6 +28,9 @@
   --el-border-color-lighter: var(--am-border);
   --el-fill-color-blank: var(--am-bg-inset);
   --el-fill-color-light: var(--am-bg-inset);
+  --el-bg-color-page: var(--am-bg);
+  --el-mask-color: rgba(22, 22, 24, 0.72);
+  --el-mask-color-extra-light: rgba(22, 22, 24, 0.45);
   --el-text-color-primary: var(--am-text);
   --el-text-color-regular: var(--am-text);
   --el-text-color-secondary: var(--am-text-dim);
@@ -41,6 +44,8 @@ html, body, #app {
   height: 100%;
   margin: 0;
   padding: 0;
+  background: var(--am-bg);
+  color-scheme: dark;
 }
 
 body {
@@ -48,6 +53,10 @@ body {
   background: var(--am-bg);
   color: var(--am-text);
   -webkit-font-smoothing: antialiased;
+}
+
+.el-loading-mask {
+  background-color: var(--el-mask-color);
 }
 
 a { text-decoration: none; }
