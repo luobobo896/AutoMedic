@@ -173,6 +173,12 @@ func TestReviewThenFixCreatesSemiTask(t *testing.T) {
 	if job.FindingN != 1 {
 		t.Fatalf("finding_n=%d", job.FindingN)
 	}
+	if !strings.Contains(job.Progress, "审查完成") {
+		t.Fatalf("完成后应有进度文案: %s", job.Progress)
+	}
+	if !strings.Contains(job.Logs, "开始调用 OCR") {
+		t.Fatalf("过程日志应可见: %s", job.Logs)
+	}
 	var findings []ocr.Finding
 	if err := job.Findings.Unmarshal(&findings); err != nil || len(findings) != 1 {
 		t.Fatalf("findings=%v err=%v", findings, err)
@@ -196,6 +202,64 @@ func TestReviewThenFixCreatesSemiTask(t *testing.T) {
 	}
 	if task.RepoID != repo.ID {
 		t.Fatalf("repo_id=%d", task.RepoID)
+	}
+}
+
+func TestReviewProgressVisibleWhileRunning(t *testing.T) {
+	e := newE2E(t, model.FixModeSemi)
+	ocrBin := filepath.Join(e.root, "slow-ocr.sh")
+	script := `#!/bin/sh
+echo "ocr starting" >&2
+sleep 1
+out=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--output" ]; then
+    out="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+printf '{"comments":[]}' > "$out"
+exit 0
+`
+	if err := os.WriteFile(ocrBin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	e.cfg.OCR = config.OCRConfig{Bin: ocrBin, TimeoutSec: 30}
+	attachDefaultProviderKey(t, e, "sk-test")
+
+	var repo model.Repository
+	if err := e.db.First(&repo).Error; err != nil {
+		t.Fatal(err)
+	}
+	job, err := e.ex.StartRepoReview(context.Background(), &repo, ReviewStartInput{Mode: "scan", Path: "service.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawProgress := false
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		got, err := e.ex.GetReviewJob(job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status == model.ReviewStatusRunning && (got.Progress != "" || got.Logs != "") {
+			sawProgress = true
+		}
+		if got.Status == model.ReviewStatusSuccess {
+			break
+		}
+		if got.Status == model.ReviewStatusFailed {
+			t.Fatalf("审查失败: %s", got.ErrorMsg)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("超时 status=%s progress=%s", got.Status, got.Progress)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !sawProgress {
+		t.Fatal("运行中应能读到 progress/logs，不能只在结束时才有")
 	}
 }
 

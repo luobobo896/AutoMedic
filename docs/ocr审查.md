@@ -27,7 +27,7 @@
 
 厂家未配 API Key、或自定义厂家未填 Base URL 时任务失败并回显原因。
 
-`ocr review --from/--to` 只审相对基线的 diff。**已合入当前分支的预埋问题不会出现在 diff 里**，必须用 `ocr scan --path`。平台拒绝 `from` 与当前分支相同（否则会空跑成功、0 条意见）。diff 审查会取完整 from/to 历史以便 `git merge-base`；本机 Git ≥ 2.41。失败时 `error_msg` 带上 `ocr` 的 stderr。
+`ocr review --from/--to` 只审相对基线的 diff。**已合入当前分支的预埋问题不会出现在 diff 里**，必须用 `ocr scan --path`。平台拒绝 `from` 与当前分支相同（否则会空跑成功、0 条意见）。diff 审查会取完整 from/to 历史以便 `git merge-base`；本机 Git ≥ 2.41。失败时 `error_msg` 带上 `ocr` 的 stderr。运行中 `progress` 为当前步骤（拉仓库 / 审查某文件 / 等模型 / 摘要），`logs` 为过程摘要；OCR 真正进度来自 `~/.opencodereview/sessions` 的 jsonl，不是 CLI stdout。
 
 ---
 
@@ -55,7 +55,7 @@ Web「系统设置 → Open Code Review」可热改。
 人选择范围（扫描已合入路径，或 diff from→当前分支；from 不能等于当前分支）
   → POST /api/v1/repos/:id/review   立即返回 job（pending）
   → 服务端准备工作区（scan 浅取；diff 审查取完整 from/to 历史以便 merge-base）+ ocr --format json --output
-  → GET /api/v1/reviews/:id         轮询至 success/failed
+  → GET /api/v1/reviews/:id         轮询至 success/failed（running 时带 progress / logs，不是空转圈）
   → 勾选 keys
   → POST /api/v1/reviews/:id/fix    为当前仓库创建 semi 任务并入队
 ```

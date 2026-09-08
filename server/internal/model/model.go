@@ -396,6 +396,8 @@ type ReviewJob struct {
 	Path       string       `gorm:"size:512" json:"path"`
 	ScanAll    bool         `json:"scan_all"`
 	Cmd        string       `gorm:"type:text" json:"cmd"`
+	Progress   string       `gorm:"size:512" json:"progress"`
+	Logs       string       `gorm:"type:text" json:"logs"`
 	ErrorMsg   string       `gorm:"type:text" json:"error_msg"`
 	Findings   JSON         `gorm:"type:text" json:"-"`
 	FindingN   int          `json:"finding_n"`

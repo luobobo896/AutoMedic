@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/automedic/automedic/internal/git"
 	"github.com/automedic/automedic/internal/model"
 	"github.com/automedic/automedic/internal/ocr"
+	"gorm.io/gorm"
 )
 
 type ReviewStartInput struct {
@@ -69,6 +71,8 @@ func (e *Executor) StartRepoReview(ctx context.Context, repo *model.Repository, 
 		Path:      path,
 		ScanAll:   in.ScanAll && mode == "scan",
 		Findings:  model.MustJSON([]ocr.Finding{}),
+		Progress:  "已排队，等待执行",
+		Logs:      "已排队，等待执行",
 	}
 	if err := e.db.Create(job).Error; err != nil {
 		return nil, err
@@ -98,6 +102,8 @@ type ReviewJobView struct {
 	Path       string             `json:"path"`
 	ScanAll    bool               `json:"scan_all"`
 	Cmd        string             `json:"cmd"`
+	Progress   string             `json:"progress"`
+	Logs       []string           `json:"logs"`
 	ErrorMsg   string             `json:"error_msg"`
 	FindingN   int                `json:"finding_n"`
 	DurationMS int64              `json:"duration_ms"`
@@ -113,7 +119,8 @@ func ReviewJobAPI(job *model.ReviewJob) ReviewJobView {
 		ID: job.ID, CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt,
 		ProjectID: job.ProjectID, RepoID: job.RepoID, Status: job.Status, Mode: job.Mode,
 		FromRef: job.FromRef, ToRef: job.ToRef, Path: job.Path, ScanAll: job.ScanAll,
-		Cmd: job.Cmd, ErrorMsg: job.ErrorMsg, FindingN: job.FindingN, DurationMS: job.DurationMS,
+		Cmd: job.Cmd, Progress: job.Progress, Logs: splitReviewLogs(job.Logs),
+		ErrorMsg: job.ErrorMsg, FindingN: job.FindingN, DurationMS: job.DurationMS,
 		StartedAt: job.StartedAt, FinishedAt: job.FinishedAt,
 		Repo: job.Repo, Project: job.Project, Findings: []ocr.Finding{},
 	}
@@ -130,8 +137,11 @@ func (e *Executor) executeReview(jobID uint) {
 		return
 	}
 	now := time.Now()
+	prog := newReviewProgress(e.db, jobID)
+	defer prog.close()
 	e.db.Model(&job).Updates(map[string]any{
 		"status": model.ReviewStatusRunning, "started_at": now, "error_msg": "",
+		"progress": "排队完成，开始准备仓库", "logs": "排队完成，开始准备仓库",
 	})
 
 	var repo model.Repository
@@ -157,6 +167,7 @@ func (e *Executor) executeReview(jobID uint) {
 		e.failReview(jobID, "凭证处理失败: "+err.Error())
 		return
 	}
+	prog.note("正在拉取仓库 " + strings.TrimSpace(repo.URL))
 	dir, cleanupDir, err := e.gitm.PrepareReviewDir(ctx, url, job.FromRef, job.ToRef, env)
 	if cleanupDir != nil {
 		defer cleanupDir()
@@ -166,6 +177,7 @@ func (e *Executor) executeReview(jobID uint) {
 		e.recordRepoUsage(&repo, "review", "fail", err.Error())
 		return
 	}
+	prog.note("仓库已就绪，解析审查模型")
 
 	llmEnv, modelErr := e.reviewLLMEnv(&repo)
 	if modelErr != nil {
@@ -173,10 +185,15 @@ func (e *Executor) executeReview(jobID uint) {
 		e.recordRepoUsage(&repo, "review", "fail", modelErr.Error())
 		return
 	}
+	if m := strings.TrimSpace(llmEnv["OCR_LLM_MODEL"]); m != "" {
+		prog.note("使用模型 " + m + "，开始调用 OCR（路径扫描可能要数分钟）")
+	} else {
+		prog.note("开始调用 OCR")
+	}
 
 	rr, runErr := ocr.Run(ctx, &e.cfg.OCR, dir, ocr.RunSpec{
 		Mode: job.Mode, From: job.FromRef, To: job.ToRef, Path: job.Path, ScanAll: job.ScanAll, LLMEnv: llmEnv,
-	}, nil)
+	}, prog.sink)
 	if rr == nil {
 		e.failReview(jobID, "OCR 执行失败: "+runErr.Error())
 		e.recordRepoUsage(&repo, "review", "fail", runErr.Error())
@@ -188,14 +205,17 @@ func (e *Executor) executeReview(jobID uint) {
 		"finding_n":   len(rr.Findings),
 		"duration_ms": rr.DurationMS,
 		"finished_at": time.Now(),
+		"logs":        prog.joined(),
 	}
 	if runErr != nil {
 		updates["status"] = model.ReviewStatusFailed
 		updates["error_msg"] = truncate(runErr.Error(), 2000)
+		updates["progress"] = "审查失败"
 		e.recordRepoUsage(&repo, "review", "fail", runErr.Error())
 	} else {
 		updates["status"] = model.ReviewStatusSuccess
 		updates["error_msg"] = ""
+		updates["progress"] = fmt.Sprintf("审查完成，%d 条意见", len(rr.Findings))
 		e.recordRepoUsage(&repo, "review", "ok", fmt.Sprintf("%d findings, %dms", len(rr.Findings), rr.DurationMS))
 	}
 	if err := e.db.Model(&model.ReviewJob{}).Where("id = ?", jobID).Updates(updates).Error; err != nil {
@@ -204,9 +224,101 @@ func (e *Executor) executeReview(jobID uint) {
 }
 
 func (e *Executor) failReview(jobID uint, msg string) {
+	var cur model.ReviewJob
+	_ = e.db.Select("logs").First(&cur, jobID).Error
+	line := "审查失败: " + truncate(msg, 240)
+	logs := strings.TrimSpace(cur.Logs)
+	if logs == "" {
+		logs = line
+	} else {
+		logs += "\n" + line
+	}
 	e.db.Model(&model.ReviewJob{}).Where("id = ?", jobID).Updates(map[string]any{
 		"status": model.ReviewStatusFailed, "error_msg": truncate(msg, 2000), "finished_at": time.Now(),
+		"progress": "审查失败", "logs": logs,
 	})
+}
+
+const maxReviewLogs = 80
+const maxReviewLogBytes = 16 * 1024
+
+type reviewProgress struct {
+	db     *gorm.DB
+	jobID  uint
+	mu     sync.Mutex
+	lines  []string
+	closed bool
+}
+
+func newReviewProgress(db *gorm.DB, jobID uint) *reviewProgress {
+	return &reviewProgress{db: db, jobID: jobID}
+}
+
+func (p *reviewProgress) sink(stream, line string) {
+	msg := strings.TrimSpace(line)
+	if msg == "" || stream == "stdout" {
+		return
+	}
+	if stream == "stderr" {
+		msg = "OCR: " + truncate(msg, 240)
+	} else if strings.HasPrefix(msg, "[ocr] ") {
+		cmd := strings.TrimPrefix(msg, "[ocr] ")
+		p.db.Model(&model.ReviewJob{}).Where("id = ?", p.jobID).Update("cmd", cmd)
+		msg = "已启动 " + cmd
+	}
+	p.note(msg)
+}
+
+func (p *reviewProgress) note(msg string) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" || p == nil {
+		return
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	if n := len(p.lines); n > 0 && p.lines[n-1] == msg {
+		p.mu.Unlock()
+		return
+	}
+	p.lines = append(p.lines, msg)
+	if len(p.lines) > maxReviewLogs {
+		p.lines = p.lines[len(p.lines)-maxReviewLogs:]
+	}
+	joined := strings.Join(p.lines, "\n")
+	if len(joined) > maxReviewLogBytes {
+		joined = joined[len(joined)-maxReviewLogBytes:]
+		if i := strings.IndexByte(joined, '\n'); i >= 0 {
+			joined = joined[i+1:]
+		}
+	}
+	p.mu.Unlock()
+	p.db.Model(&model.ReviewJob{}).Where("id = ?", p.jobID).Updates(map[string]any{
+		"progress": truncate(msg, 500),
+		"logs":     joined,
+	})
+}
+
+func (p *reviewProgress) joined() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return strings.Join(p.lines, "\n")
+}
+
+func (p *reviewProgress) close() {
+	p.mu.Lock()
+	p.closed = true
+	p.mu.Unlock()
+}
+
+func splitReviewLogs(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return []string{}
+	}
+	return strings.Split(s, "\n")
 }
 
 func (e *Executor) recordRepoUsage(repo *model.Repository, action, result, message string) {

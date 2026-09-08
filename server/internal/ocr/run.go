@@ -67,6 +67,13 @@ func Run(ctx context.Context, cfg *config.OCRConfig, workDir string, spec RunSpe
 	if sink != nil {
 		sink("sys", "[ocr] "+cmdShow)
 	}
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	go watchSession(watchCtx, workDir, func(msg string) {
+		if sink != nil {
+			sink("sys", msg)
+		}
+	})
 	started := time.Now()
 	res := execx.Run(ctx, execx.Spec{
 		Name: "ocr", Bin: bin, Args: args, Dir: workDir, Env: env, Timeout: timeout,

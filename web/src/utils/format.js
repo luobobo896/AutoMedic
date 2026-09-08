@@ -40,7 +40,7 @@ export const STAGE_LABEL = {
 }
 
 export function formatDuration(ms) {
-  if (!ms) return '-'
+  if (ms == null || ms <= 0 || Number.isNaN(Number(ms))) return '-'
   const s = Math.round(ms / 1000)
   if (s < 60) return s + 's'
   const m = Math.floor(s / 60)

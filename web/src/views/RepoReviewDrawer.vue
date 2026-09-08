@@ -23,6 +23,7 @@
           <el-button type="primary" :loading="starting" :disabled="running" @click="start">开始审查</el-button>
           <span v-if="job" class="am-text-dim" style="margin-left:12px">
             审查 #{{ job.id }} · {{ statusText }}
+            <template v-if="elapsedText"> · 已用 {{ elapsedText }}</template>
             <template v-if="job.finding_n != null && job.status === 'success'"> · {{ job.finding_n }} 条意见</template>
           </span>
         </el-form-item>
@@ -30,9 +31,19 @@
       <div class="am-text-dim" style="font-size:12px;margin-bottom:8px">
         调用官方 Open Code Review CLI（`ocr`），不改代码。已合入主干的预埋问题请用「扫描已合入代码」；「相对基线的 diff」只审未合入当前分支的改动。模型与密钥来自「大模型配置中心」。
       </div>
+      <div v-if="job && (running || job.progress || logLines.length)" class="review-progress" role="status" aria-live="polite">
+        <div class="review-progress-now">{{ job.progress || (running ? '审查进行中…' : '') }}</div>
+        <div v-if="running" class="am-text-dim" style="font-size:12px;margin-top:4px">
+          路径扫描会逐文件调模型，单文件可能要一两分钟，不是卡死。超时 {{ timeoutHint }}。
+        </div>
+        <ol v-if="logLines.length" class="review-log">
+          <li v-for="(line, i) in logLines" :key="i">{{ line }}</li>
+        </ol>
+      </div>
       <el-alert v-if="job?.status === 'failed'" type="error" :closable="false" :title="job.error_msg || '审查失败'" style="margin-bottom:12px" />
       <el-alert v-else-if="job?.status === 'success' && !findings.length" type="info" :closable="false" title="审查完成，但没有意见。若代码里已有预埋问题，请改用「扫描已合入代码」，不要用与当前分支相同的基线做 diff。" style="margin-bottom:12px" />
-      <el-table :data="findings" size="small" v-loading="running" @selection-change="onSel">
+      <div v-if="running && !findings.length" class="am-text-dim" style="font-size:12px;margin-bottom:8px">意见会在审查结束后列出，过程见上方日志。</div>
+      <el-table :data="findings" size="small" @selection-change="onSel">
         <el-table-column type="selection" width="42" />
         <el-table-column prop="severity" label="级别" width="90">
           <template #default="{ row }">
@@ -58,10 +69,11 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { startRepoReview, getReviewJob, fixReviewJob } from '@/api'
 import { ElMessage } from 'element-plus'
 import { useDicts, splitCSV } from '@/composables/useDicts'
+import { formatDuration } from '@/utils/format'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -89,17 +101,32 @@ const fixing = ref(false)
 const job = ref(null)
 const selected = ref([])
 const createdIds = ref([])
+const nowMs = ref(Date.now())
 let timer = null
+let tick = null
 
 const running = computed(() => job.value && (job.value.status === 'pending' || job.value.status === 'running'))
 const findings = computed(() => {
   const raw = job.value?.findings
   return Array.isArray(raw) ? raw : []
 })
+const logLines = computed(() => {
+  const raw = job.value?.logs
+  return Array.isArray(raw) ? raw.filter(Boolean) : []
+})
 const statusText = computed(() => {
   const s = job.value?.status
   return ({ pending: '排队', running: '审查中', success: '完成', failed: '失败' })[s] || s || ''
 })
+const elapsedText = computed(() => {
+  if (!job.value) return ''
+  if (job.value.duration_ms) return formatDuration(job.value.duration_ms)
+  if (!running.value || !job.value.started_at) return ''
+  const ms = nowMs.value - new Date(job.value.started_at).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  return formatDuration(ms)
+})
+const timeoutHint = computed(() => '约 10 分钟')
 
 watch(() => [visible.value, props.repo?.id], async () => {
   await dict.load()
@@ -164,11 +191,13 @@ async function start() {
 
 function poll() {
   stopPoll()
+  tick = setInterval(() => { nowMs.value = Date.now() }, 1000)
   timer = setInterval(async () => {
     if (!job.value?.id) return
     try {
       const r = await getReviewJob(job.value.id)
       job.value = r.data
+      nowMs.value = Date.now()
       if (job.value.status === 'success' || job.value.status === 'failed') stopPoll()
     } catch {
       stopPoll()
@@ -180,6 +209,10 @@ function stopPoll() {
   if (timer) {
     clearInterval(timer)
     timer = null
+  }
+  if (tick) {
+    clearInterval(tick)
+    tick = null
   }
 }
 
@@ -196,10 +229,33 @@ async function fixSelected() {
 }
 
 watch(visible, (v) => { if (!v) stopPoll() })
+onUnmounted(stopPoll)
 </script>
 
 <style scoped>
 .review-layout {
   min-height: 280px;
 }
+.review-progress {
+  border: 1px solid var(--am-border);
+  background: var(--am-bg-inset);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.review-progress-now {
+  color: var(--am-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.review-log {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  max-height: 180px;
+  overflow-y: auto;
+  color: var(--am-text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.review-log li + li { margin-top: 2px; }
 </style>
