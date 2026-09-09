@@ -376,6 +376,12 @@ func (h *Handlers) GetReviewJob(c *gin.Context) {
 		Fail(c, 500, "执行器未就绪")
 		return
 	}
+	// 归属校验：service 层按主键查询，必须先在 api 层确认审查任务属于当前租户
+	var owned model.ReviewJob
+	if err := h.tdb(c).Select("id").First(&owned, id).Error; err != nil {
+		NotFound(c, "审查任务不存在")
+		return
+	}
 	job, err := h.exec.GetReviewJob(id)
 	if err != nil {
 		NotFound(c, "审查任务不存在")
@@ -401,6 +407,12 @@ func (h *Handlers) FixReviewJob(c *gin.Context) {
 	var in reviewFixIn
 	if err := c.ShouldBindJSON(&in); err != nil {
 		BadRequest(c, err)
+		return
+	}
+	// 归属校验：避免对其它租户的审查任务触发修复
+	var owned model.ReviewJob
+	if err := h.tdb(c).Select("id").First(&owned, id).Error; err != nil {
+		NotFound(c, "审查任务不存在")
 		return
 	}
 	ids, err := h.exec.FixReviewFindings(id, in.Keys)

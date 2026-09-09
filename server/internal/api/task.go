@@ -71,6 +71,12 @@ func (h *Handlers) TaskLogs(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
+	// 先校验任务归属当前租户，避免跨租户读取日志
+	var task model.Task
+	if err := h.tdb(c).Select("id").First(&task, id).Error; err != nil {
+		NotFound(c, "任务不存在")
+		return
+	}
 	after := int64(0)
 	if v := c.Query("after_seq"); v != "" {
 		after, _ = strconv.ParseInt(v, 10, 64)
@@ -215,6 +221,12 @@ func (h *Handlers) ConfirmTask(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
+	// 归属校验：service 层按主键操作，必须先在 api 层确认任务属于当前租户
+	var owned model.Task
+	if err := h.tdb(c).Select("id").First(&owned, id).Error; err != nil {
+		NotFound(c, "任务不存在")
+		return
+	}
 	var body struct {
 		Operator string `json:"operator"`
 		Note     string `json:"note"`
@@ -237,6 +249,11 @@ func (h *Handlers) RejectTask(c *gin.Context) {
 	id, ok := ParseID(c, "id")
 	if !ok {
 		BadRequest(c, "id 非法")
+		return
+	}
+	var owned model.Task
+	if err := h.tdb(c).Select("id").First(&owned, id).Error; err != nil {
+		NotFound(c, "任务不存在")
 		return
 	}
 	var body struct {

@@ -124,8 +124,17 @@ func CreateTenantRoles(db *gorm.DB, tenantID uint) error {
 
 // SetRolePermissions 设置角色权限（自动补齐/回收）
 func SetRolePermissions(db *gorm.DB, roleID uint, codes []string) error {
+	// 白名单过滤：只接受权限目录中存在的码，忽略任意非法码
+	valid := make(map[string]bool, len(model.PermissionCatalog))
+	for _, p := range model.PermissionCatalog {
+		valid[p.Code] = true
+	}
 	want := map[string]bool{}
 	for _, c := range codes {
+		if !valid[c] {
+			slog.Warn("忽略非法的角色权限码", "role_id", roleID, "code", c)
+			continue
+		}
 		want[c] = true
 	}
 	var exist []model.RolePermission

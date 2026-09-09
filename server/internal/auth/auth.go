@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/automedic/automedic/internal/config"
@@ -36,10 +37,41 @@ type Service struct {
 	db  *gorm.DB
 	cfg *config.Config
 	key []byte
+
+	// refreshSeen 记录刷新令牌最近一次成功轮换的时间，用于并发重放宽限（见 refreshGrace）。
+	// 仅本机内存态：多实例部署时各实例独立判定，最坏情况是宽限期失效回退到"轮换后旧令牌立即不可用"。
+	refreshMu   sync.Mutex
+	refreshSeen map[string]time.Time
 }
 
+// refreshGrace 刷新令牌轮换宽限期。
+// 轮换（旧 refresh 换新的）后旧 refresh 立即吊销，但多标签页/页面刷新会在几乎同一时刻
+// 用同一个旧 refresh 并发续期，严格一次性和多端可用不可兼得。
+// 权衡：窗口内旧 refresh 若已泄露仍可续期，因此窗口取 30 秒而不是分钟级。
+const refreshGrace = 30 * time.Second
+
 func NewService(db *gorm.DB, cfg *config.Config) *Service {
-	return &Service{db: db, cfg: cfg, key: cfg.ResolveJWTSecret()}
+	return &Service{db: db, cfg: cfg, key: cfg.ResolveJWTSecret(), refreshSeen: map[string]time.Time{}}
+}
+
+// markRefresh 记录 jti 最近一次轮换时间，并顺带清理窗口外的条目
+func (s *Service) markRefresh(jti string, now time.Time) {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	for k, t := range s.refreshSeen {
+		if now.Sub(t) > refreshGrace {
+			delete(s.refreshSeen, k)
+		}
+	}
+	s.refreshSeen[jti] = now
+}
+
+// inRefreshGrace 判断该 jti 是否处于轮换宽限期内（并发重放）
+func (s *Service) inRefreshGrace(jti string, now time.Time) bool {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	t, ok := s.refreshSeen[jti]
+	return ok && now.Sub(t) <= refreshGrace
 }
 
 // Claims JWT 载荷
@@ -186,14 +218,20 @@ func (s *Service) Refresh(refresh string) (*Principal, string, string, error) {
 	if len(parts) != 2 {
 		return nil, "", "", errors.New("刷新令牌无效")
 	}
+	now := time.Now()
 	var tok model.AuthToken
-	if err := s.db.Where("jti = ? AND revoked = ?", parts[0], false).First(&tok).Error; err != nil {
+	if err := s.db.Where("jti = ?", parts[0]).First(&tok).Error; err != nil {
 		return nil, "", "", errors.New("刷新令牌无效或已失效")
 	}
-	if time.Now().After(tok.ExpiresAt) {
+	if now.After(tok.ExpiresAt) {
 		return nil, "", "", errors.New("刷新令牌已过期")
 	}
 	if tok.RefreshHash != "" && tok.RefreshHash != HashRefresh(parts[1]) {
+		return nil, "", "", errors.New("刷新令牌无效或已失效")
+	}
+	// 已吊销：只有处于轮换宽限期内才视为并发重放（同一旧 refresh 被多处同时提交），
+	// 否则按失效处理，防止已轮换掉的旧令牌被无限复用。
+	if tok.Revoked && !s.inRefreshGrace(parts[0], now) {
 		return nil, "", "", errors.New("刷新令牌无效或已失效")
 	}
 	var u model.User
@@ -207,7 +245,12 @@ func (s *Service) Refresh(refresh string) (*Principal, string, string, error) {
 	if err != nil {
 		return nil, "", "", err
 	}
-	s.db.Model(&model.AuthToken{}).Where("id = ?", tok.ID).Update("revoked", true)
+	if !tok.Revoked {
+		s.db.Model(&model.AuthToken{}).Where("id = ?", tok.ID).Update("revoked", true)
+		// 只有真正发生轮换时才记录宽限起点。重放请求不得续期窗口，
+		// 否则持续出示同一个已吊销令牌就能把 30 秒窗口滚动延长，旧令牌可被无限复用。
+		s.markRefresh(parts[0], now)
+	}
 	access, newRefresh, err := s.issueTokens(p, tok.IP, tok.UserAgent)
 	if err != nil {
 		return nil, "", "", err

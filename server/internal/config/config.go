@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +28,10 @@ type ServerConfig struct {
 	AdminToken   string `yaml:"admin_token"`   // 管理 API 鉴权令牌（X-Admin-Token）
 	ReadTimeout  int    `yaml:"read_timeout"`  // 秒
 	WriteTimeout int    `yaml:"write_timeout"` // 秒
+	// 允许的前端源（CORS），空则默认 ["*"]
+	AllowOrigins []string `yaml:"allow_origins"`
+	// 可信反向代理 IP/CIDR；为空表示不信任任何代理，ClientIP 取 TCP 对端
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 type DBConfig struct {
@@ -233,10 +239,18 @@ func applyEnv(cfg *Config) {
 			*dst = v
 		}
 	}
+	// 逗号分隔的切片字段
+	setSlice := func(dst *[]string, key string) {
+		if v := os.Getenv("AUTOMEDIC_" + key); v != "" {
+			*dst = strings.Split(v, ",")
+		}
+	}
 	set(&cfg.Server.Addr, "SERVER_ADDR")
 	set(&cfg.Server.Mode, "SERVER_MODE")
 	set(&cfg.Server.WebDir, "SERVER_WEB_DIR")
 	set(&cfg.Server.AdminToken, "SERVER_ADMIN_TOKEN")
+	setSlice(&cfg.Server.AllowOrigins, "SERVER_ALLOW_ORIGINS")
+	setSlice(&cfg.Server.TrustedProxies, "SERVER_TRUSTED_PROXIES")
 	set(&cfg.DB.Driver, "DB_DRIVER")
 	set(&cfg.DB.DSN, "DB_DSN")
 	set(&cfg.Auth.JWTSecret, "AUTH_JWT_SECRET")
@@ -268,7 +282,15 @@ func (c *Config) ResolveSecretKey() ([]byte, error) {
 	return nil, errNoKey
 }
 
-// ResolveJWTSecret JWT 签名密钥：auth.jwt_secret 优先，回退 security.secret_key
+// ResolveJWTSecret JWT 签名密钥，按以下优先级解析：
+//  1. auth.jwt_secret（padOrTrim 到 32 字节）
+//  2. security.secret_key + "-jwt"
+//  3. security.secret_key_file：读取文件内容（TrimSpace）后 padOrTrim 再拼 "-jwt"
+//     （读文件失败记录错误并回退到随机临时密钥，不静默使用弱默认值）
+//  4. 以上皆无：用 crypto/rand 生成 32 字节随机密钥（重启后登录态失效，仅兜底）
+//
+// 注意：padOrTrim 用 '0' 填充不足 32 字节的弱密钥仅保证长度，并不增强强度；
+// 因此不要改动加密算法本身（改了会导致已按 32 字节约定存储/签发的令牌/密文解不开）。
 func (c *Config) ResolveJWTSecret() []byte {
 	if c.Auth.JWTSecret != "" {
 		return []byte(padOrTrim(c.Auth.JWTSecret))
@@ -276,7 +298,26 @@ func (c *Config) ResolveJWTSecret() []byte {
 	if c.Security.SecretKey != "" {
 		return []byte(padOrTrim(c.Security.SecretKey + "-jwt"))
 	}
-	return []byte("automedic-default-jwt-secret-please-change!!")
+	if c.Security.SecretKeyFile != "" {
+		b, err := os.ReadFile(c.Security.SecretKeyFile)
+		if err != nil {
+			slog.Error("读取 security.secret_key_file 失败，使用随机临时密钥", "err", err)
+		} else {
+			return []byte(padOrTrim(strings.TrimSpace(string(b))) + "-jwt")
+		}
+	}
+	slog.Warn("JWT 密钥未配置，已使用随机临时密钥，重启后登录态失效，请配置 auth.jwt_secret")
+	return randomJWTSecret()
+}
+
+// randomJWTSecret 生成 32 字节密码学随机密钥（兜底用）
+func randomJWTSecret() []byte {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// 绝不能回退到任何硬编码常量：那等于给所有人一把能自签超管令牌的钥匙。
+		panic("无法生成随机 JWT 密钥，请显式配置 auth.jwt_secret: " + err.Error())
+	}
+	return b
 }
 
 var errNoKey = &ConfigError{Msg: "security.secret_key 未配置（或设置 AUTOMEDIC_SECURITY_SECRET_KEY）"}

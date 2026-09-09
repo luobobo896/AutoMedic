@@ -27,14 +27,18 @@ func (h *Handlers) Login(c *gin.Context) {
 		return
 	}
 	if in.Username == "" || in.Password == "" {
+		slog.Warn("登录失败", "username", in.Username, "ip", c.ClientIP(), "reason", "账号或密码为空")
 		BadRequest(c, "请输入账号与密码")
 		return
 	}
-	p, access, refresh, err := h.auth.Login(in.Username, in.Password, c.ClientIP(), c.GetHeader("User-Agent"))
+	ip := c.ClientIP()
+	p, access, refresh, err := h.auth.Login(in.Username, in.Password, ip, c.GetHeader("User-Agent"))
 	if err != nil {
+		slog.Warn("登录失败", "username", in.Username, "ip", ip, "result", err.Error())
 		Fail(c, http.StatusUnauthorized, err.Error())
 		return
 	}
+	slog.Info("登录成功", "username", in.Username, "ip", ip, "result", "ok")
 	OK(c, gin.H{"token": access, "refresh_token": refresh, "user": profileOf(p)})
 }
 
@@ -189,9 +193,14 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 	if in.Status == "" {
 		in.Status = "active"
 	}
+	// 仅平台超管可创建超管账号，否则强制 false，防止普通租户管理员越权提权
+	isSuper := false
+	if p := h.principal(c); p != nil && p.IsSuper && in.IsSuper {
+		isSuper = true
+	}
 	u := model.User{
 		TenantID: tid, Username: in.Username, PasswordHash: hash,
-		DisplayName: in.DisplayName, Email: in.Email, Status: in.Status, IsSuper: in.IsSuper,
+		DisplayName: in.DisplayName, Email: in.Email, Status: in.Status, IsSuper: isSuper,
 	}
 	if err := h.db.Create(&u).Error; err != nil {
 		BadRequest(c, err)

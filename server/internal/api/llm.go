@@ -16,6 +16,7 @@ import (
 
 // ---------- 厂家 ----------
 
+// 模型配置平台级共享，不按租户隔离
 func (h *Handlers) ListProviders(c *gin.Context) {
 	var list []model.Provider
 	if err := h.db.Order("id ASC").Find(&list).Error; err != nil {
@@ -478,9 +479,9 @@ func (h *Handlers) DeleteToken(c *gin.Context) {
 
 func (h *Handlers) ListRules(c *gin.Context) {
 	var list []model.Rule
-	q := h.db.Model(&model.Rule{}).Preload("Project")
+	q := h.tdbOn(c, "rules").Model(&model.Rule{}).Preload("Project")
 	if pid := c.Query("project_id"); pid != "" {
-		q = q.Where("project_id = ?", pid)
+		q = q.Where("rules.project_id = ?", pid)
 	}
 	var total int64
 	q.Count(&total)
@@ -510,7 +511,12 @@ func (h *Handlers) CreateRule(c *gin.Context) {
 		return
 	}
 	r.Project = nil
-	if err := h.db.Create(&r).Error; err != nil {
+	tid, ok := h.requireTenantOfProject(c, r.ProjectID)
+	if !ok {
+		return
+	}
+	r.TenantID = tid
+	if err := h.tdb(c).Create(&r).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
@@ -524,11 +530,11 @@ func (h *Handlers) UpdateRule(c *gin.Context) {
 		return
 	}
 	var r model.Rule
-	if err := h.db.First(&r, id).Error; err != nil {
+	if err := h.tdb(c).First(&r, id).Error; err != nil {
 		NotFound(c, "规则不存在")
 		return
 	}
-	if !h.saveUpdates(c, h.db, &r,
+	if !h.saveUpdates(c, h.tdb(c), &r,
 		"name", "enabled", "priority", "levels", "sources", "keywords", "all_keywords",
 		"exclude_keywords", "exclude_sources", "pattern", "min_count", "window_sec",
 		"cooldown_sec", "action", "repo_ids", "model_id", "fix_mode", "max_retries",
@@ -544,7 +550,7 @@ func (h *Handlers) DeleteRule(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
-	if err := h.db.Delete(&model.Rule{}, id).Error; err != nil {
+	if err := h.tdb(c).Delete(&model.Rule{}, id).Error; err != nil {
 		ServerError(c, err)
 		return
 	}
