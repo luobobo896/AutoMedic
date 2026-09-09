@@ -5,7 +5,7 @@
         <h2 class="am-page-title">租户管理</h2>
         <p class="am-page-desc">租户是数据隔离边界：项目、仓库、凭证、规则、事件、任务均归属某个租户。</p>
       </div>
-      <el-button class="am-btn-soft" :icon="'Plus'" @click="openCreate">新增租户</el-button>
+      <el-button :icon="'Plus'" @click="openCreate">新增租户</el-button>
     </div>
 
     <div class="am-card-grid">
@@ -52,8 +52,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button class="am-btn-soft" @click="dialog = false">取消</el-button>
-        <el-button type="primary" class="am-btn-primary" @click="submit">保存</el-button>
+        <el-button @click="dialog = false">取消</el-button>
+        <el-button type="primary" @click="submit">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -115,7 +115,7 @@ onMounted(load)
   padding: 16px 18px;
 }
 .tenant-top { display: flex; align-items: center; gap: 8px; }
-.tenant-name { font-size: 15px; font-weight: 600; }
+.tenant-name { font-size: var(--am-font-lg); font-weight: 600; }
 .tenant-meta { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
-.tenant-remark { margin-top: 10px; font-size: 12.5px; color: var(--am-text-dim); }
+.tenant-remark { margin-top: 10px; font-size: var(--am-font-sm); color: var(--am-text-dim); }
 </style>

@@ -2,7 +2,7 @@
   <el-drawer v-model="visible" :title="title" size="72%" destroy-on-close>
     <div class="repo-tree-layout" v-loading="loading">
       <div class="repo-tree-pane">
-        <div class="am-text-dim" style="font-size:12px;margin-bottom:8px">
+        <div class="am-text-dim" style="font-size: var(--am-font-xs);margin-bottom:8px">
           浅取远端 {{ repo?.branch || 'HEAD' }} 最新提交，用于核对整体代码结构。
         </div>
         <el-tree
@@ -23,7 +23,7 @@
           </template>
         </el-tree>
         <div v-else-if="!loading" class="am-text-dim">目录为空或无法读取</div>
-        <div v-if="truncated" class="am-text-dim" style="margin-top:8px;font-size:12px">条目过多，已截断显示</div>
+        <div v-if="truncated" class="am-text-dim" style="margin-top:8px;font-size: var(--am-font-xs)">条目过多，已截断显示</div>
       </div>
       <div class="repo-file-pane">
         <div v-if="fileMeta" class="am-toolbar" style="margin-bottom:8px">
@@ -135,7 +135,7 @@ async function onClick(data) {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
+  font-size: var(--am-font-xs);
   line-height: 1.5;
 }
 :deep(.el-tree) {

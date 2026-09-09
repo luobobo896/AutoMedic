@@ -14,7 +14,7 @@
           <h3 class="am-section-title">大模型厂家</h3>
           <p class="am-section-desc">点击卡片切换当前使用的厂家。</p>
         </div>
-        <el-button class="am-btn-soft" :icon="'Plus'" @click="openProvider">新增厂家</el-button>
+        <el-button :icon="'Plus'" @click="openProvider">新增厂家</el-button>
       </div>
       <div class="am-card-grid">
         <div v-for="p in providers" :key="p.id" class="am-provider-card"
@@ -48,7 +48,7 @@
           <h3 class="am-section-title">模型列表<span v-if="current" class="am-section-suffix">· {{ current.name }}</span></h3>
           <p class="am-section-desc">输出上下文即最大输出长度，选项按模型官方规格过滤，超出能力范围的档位不可选。</p>
         </div>
-        <el-button class="am-btn-soft" :icon="'Plus'" :disabled="!current" @click="openModel">新增模型</el-button>
+        <el-button :icon="'Plus'" :disabled="!current" @click="openModel">新增模型</el-button>
       </div>
       <el-alert v-if="!current" type="info" :closable="false" show-icon
         title="请先在上方选择一个厂家，然后为其配置模型。" class="am-alert" />
@@ -122,8 +122,8 @@
         <el-form-item label="启用"><el-switch v-model="providerForm.enabled" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button class="am-btn-soft" @click="providerDialog = false">取消</el-button>
-        <el-button type="primary" class="am-btn-primary" @click="submitProvider">保存环境</el-button>
+        <el-button @click="providerDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitProvider">保存环境</el-button>
       </template>
     </el-dialog>
 
@@ -199,8 +199,8 @@
         </el-collapse>
       </el-form>
       <template #footer>
-        <el-button class="am-btn-soft" @click="modelDialog = false">取消</el-button>
-        <el-button type="primary" class="am-btn-primary" @click="submitModel">保存模型</el-button>
+        <el-button @click="modelDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitModel">保存模型</el-button>
       </template>
     </el-dialog>
   </div>
@@ -516,14 +516,14 @@ onMounted(async () => {
 <style scoped>
 .am-page-model { max-width: 1200px; margin: 0 auto; padding: 28px 24px 48px; }
 .am-page-head { margin-bottom: 24px; }
-.am-page-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
-.am-page-desc { margin: 6px 0 0; font-size: 13px; color: var(--am-text-dim); line-height: 1.6; }
+.am-page-title { margin: 0; font-size: var(--am-font-2xl); font-weight: 700; letter-spacing: .2px; }
+.am-page-desc { margin: 6px 0 0; font-size: var(--am-font-sm); color: var(--am-text-dim); line-height: 1.6; }
 
 .am-section { margin-bottom: 28px; }
 .am-section-head { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
-.am-section-title { margin: 0; font-size: 16px; font-weight: 600; }
+.am-section-title { margin: 0; font-size: var(--am-font-lg); font-weight: 600; }
 .am-section-suffix { margin-left: 8px; font-weight: 400; color: var(--am-text-dim); }
-.am-section-desc { margin: 4px 0 0; font-size: 12.5px; color: var(--am-text-dim); line-height: 1.5; }
+.am-section-desc { margin: 4px 0 0; font-size: var(--am-font-sm); color: var(--am-text-dim); line-height: 1.5; }
 .am-section-head .am-flex-1, .am-section-head .el-button { margin-left: auto; }
 
 /* 厂家卡片 */
@@ -542,10 +542,10 @@ onMounted(async () => {
   box-shadow: 0 0 0 3px var(--am-primary-soft);
 }
 .am-provider-top { display: flex; align-items: center; gap: 8px; }
-.am-provider-name { font-size: 15px; font-weight: 600; }
-.am-provider-url { margin-top: 6px; font-size: 12px; color: var(--am-text-dim); word-break: break-all; }
+.am-provider-name { font-size: var(--am-font-lg); font-weight: 600; }
+.am-provider-url { margin-top: 6px; font-size: var(--am-font-xs); color: var(--am-text-dim); word-break: break-all; }
 .am-provider-meta { margin-top: 10px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.am-provider-count { margin-left: auto; font-size: 12px; color: var(--am-text-dim); }
+.am-provider-count { margin-left: auto; font-size: var(--am-font-xs); color: var(--am-text-dim); }
 
 .am-model-list { display: flex; flex-direction: column; gap: 10px; }
 .am-model-row {
@@ -558,19 +558,19 @@ onMounted(async () => {
 }
 .am-model-row:hover { border-color: var(--am-border-strong); }
 .am-model-info { flex: 1; min-width: 0; }
-.am-model-name { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.am-model-name { font-size: var(--am-font-md); font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .am-model-sub { margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.am-model-dim { font-size: 12px; color: var(--am-text-dim); }
+.am-model-dim { font-size: var(--am-font-xs); color: var(--am-text-dim); }
 .am-model-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .am-model-actions .el-button + .el-button { margin-left: 4px; }
 
-.am-empty { color: var(--am-text-dim); font-size: 13px; text-align: center; padding: 28px 0; }
+.am-empty { color: var(--am-text-dim); font-size: var(--am-font-sm); text-align: center; padding: 28px 0; }
 
 /* pill */
 .am-pill {
   display: inline-flex; align-items: center;
   padding: 2px 10px; border-radius: 999px;
-  font-size: 11.5px; line-height: 1.6;
+  font-size: var(--am-font-xs); line-height: 1.6;
   background: var(--am-bg-inset); color: var(--am-text-dim);
   border: 1px solid transparent;
 }
@@ -578,39 +578,39 @@ onMounted(async () => {
 .am-pill-accent { background: var(--am-primary-soft); color: var(--am-primary); }
 
 /* 图标按钮 */
-.am-icon-btn { color: var(--am-text-dim); font-size: 15px; }
+.am-icon-btn { color: var(--am-text-dim); font-size: var(--am-font-lg); }
 .am-icon-btn:hover { color: var(--am-text); }
 .am-icon-danger:hover { color: var(--am-danger); }
 
 /* 对话框 */
-.am-dialog-desc { margin: -6px 0 16px; font-size: 12.5px; color: var(--am-text-dim); line-height: 1.6; }
+.am-dialog-desc { margin: -6px 0 16px; font-size: var(--am-font-sm); color: var(--am-text-dim); line-height: 1.6; }
 .am-form :deep(.el-form-item__label) { font-weight: 500; color: var(--am-text); }
 .am-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .am-form-divider {
   margin: 4px 0 14px; padding-top: 14px;
   border-top: 1px solid var(--am-border);
-  font-size: 13px; font-weight: 600; color: var(--am-text);
+  font-size: var(--am-font-sm); font-weight: 600; color: var(--am-text);
 }
 .am-field-hint {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  margin: -6px 0 12px; font-size: 12px; color: var(--am-text-dim); line-height: 1.6;
+  margin: -6px 0 12px; font-size: var(--am-font-xs); color: var(--am-text-dim); line-height: 1.6;
 }
 .am-field-hint-spec { display: inline-flex; align-items: center; gap: 4px; }
 .am-hint-link { color: var(--am-primary); cursor: help; }
 .am-opt { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; }
-.am-opt-tokens { font-size: 11.5px; color: var(--am-text-dim); }
+.am-opt-tokens { font-size: var(--am-font-xs); color: var(--am-text-dim); }
 
-.am-collapse { border: 1px solid var(--am-border); border-radius: 12px; padding: 0 16px; margin-top: 6px;
+.am-collapse { border: 1px solid var(--am-border); border-radius: var(--am-radius-lg); padding: 0 16px; margin-top: 6px;
   --el-collapse-border-color: var(--am-border); --el-collapse-header-bg-color: transparent;
   --el-collapse-content-bg-color: transparent; }
 .am-collapse :deep(.el-collapse-item__header) { background: transparent; }
 .am-collapse-title { display: flex; flex-direction: column; gap: 2px; }
-.am-collapse-title span:first-child { font-size: 13.5px; font-weight: 600; }
-.am-collapse-desc { font-size: 12px; font-weight: 400; color: var(--am-text-dim); }
+.am-collapse-title span:first-child { font-size: var(--am-font-md); font-weight: 600; }
+.am-collapse-desc { font-size: var(--am-font-xs); font-weight: 400; color: var(--am-text-dim); }
 
-.am-alert { border-radius: 10px; margin-bottom: 12px; }
+.am-alert { border-radius: var(--am-radius-md); margin-bottom: 12px; }
 
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
   .am-page-model { padding: 16px 12px 32px; }
   .am-form-grid { grid-template-columns: 1fr; }
   .am-model-row { flex-direction: column; align-items: flex-start; }

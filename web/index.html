@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN" class="dark" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#161618" />
     <title>AutoMedic · 自动修复平台</title>
     <style>
-      /* 与 --am-bg 同色，避免 EP 默认浅色 / 启动脚本切换导致闪黑或闪白 */
+      /* 首帧兜底：与 --am-bg 同色，先于任何 CSS 加载生效，避免闪黑或闪白 */
       html, body, #app {
         margin: 0;
         height: 100%;
@@ -14,16 +15,33 @@
         color-scheme: dark;
       }
       #am-boot {
-        position: fixed; inset: 0; display: flex;
+        position: fixed; inset: 0; display: flex; flex-direction: column; gap: 8px;
         align-items: center; justify-content: center;
         font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
         background: #161618;
         color: #9a9aa3;
+        transition: opacity .18s ease;
       }
+      #am-boot.is-done { opacity: 0; pointer-events: none; }
     </style>
+    <script>
+      // 主题初始化：首帧渲染前同步执行。当前只有深色；未来加浅色主题时
+      // 扩展此处的 storage 读取即可，首帧背景与 color-scheme 同时切换，不会闪色。
+      ;(function () {
+        var saved = null
+        try { saved = localStorage.getItem('am.theme') } catch (e) { /* 隐私模式忽略 */ }
+        var theme = saved === 'light' ? 'light' : 'dark'
+        var root = document.documentElement
+        root.classList.toggle('dark', theme === 'dark')
+        root.setAttribute('data-theme', theme)
+        // 首访 / 登录页不显示「恢复会话」，避免误导
+        var bootText = document.getElementById('am-boot-text')
+        if (bootText && location.hash.indexOf('#/login') === 0) bootText.textContent = 'AutoMedic 加载中…'
+      })()
+    </script>
   </head>
   <body>
-    <div id="app"><div id="am-boot">AutoMedic 正在恢复会话…</div></div>
+    <div id="app"><div id="am-boot"><span id="am-boot-text">AutoMedic 正在恢复会话…</span></div></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

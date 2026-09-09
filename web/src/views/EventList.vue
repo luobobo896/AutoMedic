@@ -2,8 +2,8 @@
   <div class="am-page">
     <div class="am-card">
       <div class="am-toolbar">
-        <span style="font-weight:600">事件中心</span>
-        <span class="am-text-dim" style="font-size:12px">同一指纹合并为一条。修复成功后状态同步为「已修复」，不能再重放。</span>
+        <span class="am-card__title">事件中心</span>
+        <span class="am-text-dim" style="font-size: var(--am-font-xs)">同一指纹合并为一条。修复成功后状态同步为「已修复」，不能再重放。</span>
         <div class="am-flex-1" />
         <el-button :icon="'Refresh'" @click="load" />
       </div>
@@ -55,7 +55,7 @@
         <el-table-column label="处置" width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <el-tag size="small" :type="EVENT_STATUS_META[row.status]?.type">{{ EVENT_STATUS_META[row.status]?.label }}</el-tag>
-            <span class="am-text-dim" style="margin-left:6px;font-size:12px">{{ row.dispose_msg }}</span>
+            <span class="am-text-dim" style="margin-left:6px;font-size: var(--am-font-xs)">{{ row.dispose_msg }}</span>
           </template>
         </el-table-column>
         <el-table-column label="发生时间" width="170">
@@ -74,7 +74,7 @@
         </el-table-column>
       </el-table>
 
-      <el-pagination style="margin-top:12px; justify-content:flex-end"
+      <el-pagination class="am-pagination"
         layout="total, sizes, prev, pager, next" :total="total"
         v-model:current-page="query.page" v-model:page-size="query.page_size"
         @current-change="load" @size-change="search" />

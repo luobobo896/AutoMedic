@@ -3,7 +3,7 @@
     <div class="am-card">
       <el-empty description="当前账号没有任何可访问的功能页">
         <template #image>
-          <el-icon :size="64" color="#f0506e"><Lock /></el-icon>
+          <el-icon :size="64" color="var(--am-danger)"><Lock /></el-icon>
         </template>
         <div class="forbidden-tip">
           请联系管理员为你所属角色分配菜单权限（如 overview:read、task:read）。
@@ -49,7 +49,7 @@ async function doLogout() {
   max-width: 520px;
 }
 .forbidden-tip {
-  font-size: 13px;
+  font-size: var(--am-font-sm);
   color: var(--am-text-dim);
   margin-bottom: 16px;
   line-height: 1.7;

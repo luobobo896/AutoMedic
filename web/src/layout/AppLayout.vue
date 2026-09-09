@@ -72,28 +72,36 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button class="am-btn-soft" @click="pwdDialog = false">取消</el-button>
-      <el-button type="primary" class="am-btn-primary" :loading="pwdLoading" @click="submitPassword">保存</el-button>
+      <el-button @click="pwdDialog = false">取消</el-button>
+      <el-button type="primary" :loading="pwdLoading" @click="submitPassword">保存</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, UserFilled, FirstAidKit } from '@element-plus/icons-vue'
 import { visibleMenus } from '@/router'
 import { changePassword, logout } from '@/api'
 import { useAuth } from '@/store/auth'
+import { useBreakpoint } from '@/composables/useBreakpoint'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
 const { state, isSuper, reset } = useAuth()
+const { isMobile, isTablet } = useBreakpoint()
 
-const collapsed = ref(typeof window !== 'undefined' && window.innerWidth < 1024)
-const lastNarrow = ref(collapsed.value)
-const compact = ref(typeof window !== 'undefined' && window.innerWidth < 768)
+// <768px 抽屉侧栏；768–1023px 收起为图标列；≥1024px 展开。
+// 断点与 CSS 同源（constants/breakpoints.js）；跨越 1024px 时自动收起/展开，
+// 同带宽内的手动折叠不被覆盖。
+const compact = isMobile
+const collapsed = ref(window.innerWidth < 1024)
+watch(
+  () => isMobile.value || isTablet.value,
+  (narrow) => { collapsed.value = narrow }
+)
 const asideWidth = computed(() => {
   if (compact.value) return '210px'
   return collapsed.value ? '64px' : '210px'
@@ -119,20 +127,6 @@ function onMenuSelect(index) {
   if (route.path === index) return
   router.push(index)
 }
-
-function syncAside() {
-  compact.value = window.innerWidth < 768
-  const narrow = window.innerWidth < 1024
-  if (narrow !== lastNarrow.value) {
-    collapsed.value = narrow
-    lastNarrow.value = narrow
-  }
-}
-onMounted(() => {
-  syncAside()
-  window.addEventListener('resize', syncAside)
-})
-onUnmounted(() => window.removeEventListener('resize', syncAside))
 
 async function onCommand(cmd) {
   if (cmd === 'password') {
@@ -187,7 +181,7 @@ async function submitPassword() {
   height: 100%;
   box-shadow: var(--am-shadow);
 }
-.logo { height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 18px; color: var(--am-text); font-weight: 600; font-size: 15px; }
+.logo { height: 56px; display: flex; align-items: center; gap: var(--am-space-2); padding: 0 18px; color: var(--am-text); font-weight: 600; font-size: var(--am-font-lg); }
 .logo-icon { color: var(--am-primary); }
 .header {
   display: flex;
@@ -216,7 +210,7 @@ async function submitPassword() {
   height: 100%;
 }
 .dsh-tag { border-radius: 999px; }
-@media (max-width: 767px) {
+@media (max-width: 767.98px) {
   .dsh-tag { display: none; }
   .user-name { max-width: 72px; }
 }
@@ -225,14 +219,14 @@ async function submitPassword() {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; border-radius: 999px;
   background: var(--am-bg-inset); border: 1px solid var(--am-border);
-  cursor: pointer; font-size: 13px; color: var(--am-text);
+  cursor: pointer; font-size: var(--am-font-sm); color: var(--am-text);
   transition: border-color .18s ease;
 }
 .user-chip:hover { border-color: var(--am-border-strong); }
 .user-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .user-meta { padding: 8px 14px 10px; border-bottom: 1px solid var(--am-border); margin-bottom: 4px; }
-.user-meta-name { font-size: 13.5px; font-weight: 600; }
-.user-meta-sub { margin-top: 2px; font-size: 12px; color: var(--am-text-dim); }
+.user-meta-name { font-size: var(--am-font-md); font-weight: 600; }
+.user-meta-sub { margin-top: 2px; font-size: var(--am-font-xs); color: var(--am-text-dim); }
 :deep(.el-menu) { border-right: none; }
 </style>

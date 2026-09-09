@@ -22,13 +22,13 @@
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
             <el-tag size="small" :type="STATUS_META[row.status]?.type">{{ STATUS_META[row.status]?.label }}</el-tag>
-            <div class="am-text-dim" style="font-size:11px">{{ STAGE_LABEL[row.stage] || '' }}</div>
+            <div class="am-text-dim" style="font-size: var(--am-font-xs)">{{ STAGE_LABEL[row.stage] || '' }}</div>
           </template>
         </el-table-column>
         <el-table-column label="项目 / 仓库" width="190">
           <template #default="{ row }">
             <div>{{ row.project?.name || '-' }}</div>
-            <div class="am-text-dim" style="font-size:11px">{{ row.repo?.name || '-' }}</div>
+            <div class="am-text-dim" style="font-size: var(--am-font-xs)">{{ row.repo?.name || '-' }}</div>
           </template>
         </el-table-column>
         <el-table-column label="触发事件" min-width="240" show-overflow-tooltip>
@@ -70,7 +70,7 @@
         </el-table-column>
       </el-table>
 
-      <el-pagination style="margin-top:12px; justify-content:flex-end"
+      <el-pagination class="am-pagination"
         layout="total, sizes, prev, pager, next" :total="total"
         v-model:current-page="query.page" v-model:page-size="query.page_size"
         @current-change="load" @size-change="search" />

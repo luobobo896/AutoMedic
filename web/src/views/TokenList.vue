@@ -52,7 +52,7 @@
         </el-table-column>
       </el-table>
 
-      <el-pagination style="margin-top:12px; justify-content:flex-end"
+      <el-pagination class="am-pagination"
         layout="total, sizes, prev, pager, next" :total="total"
         v-model:current-page="query.page" v-model:page-size="query.page_size"
         @current-change="load" @size-change="search" />

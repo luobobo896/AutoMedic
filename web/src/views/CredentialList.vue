@@ -3,7 +3,7 @@
     <div class="am-card">
       <div class="am-toolbar">
         <el-button type="primary" :icon="'Plus'" @click="openCreate">新增凭证</el-button>
-        <span class="am-text-dim" style="font-size:12px">
+        <span class="am-text-dim" style="font-size: var(--am-font-xs)">
           凭证加密存储（AES-256-GCM），可被多个项目 / 仓库复用
         </span>
         <div class="am-flex-1" />

@@ -26,7 +26,7 @@
         </el-button>
       </el-form>
 
-      <div class="login-foot">默认账号 admin / admin123，首次登录后请尽快修改密码</div>
+      <div v-if="showDefaultHint" class="login-foot">默认账号 admin / admin123（仅开发环境）</div>
     </div>
   </div>
 </template>
@@ -41,6 +41,9 @@ import { useAuth } from '@/store/auth'
 const router = useRouter()
 const route = useRoute()
 const { applySession } = useAuth()
+
+// 生产构建不暴露默认口令
+const showDefaultHint = import.meta.env.DEV
 
 const form = ref({ username: '', password: '' })
 const loading = ref(false)
@@ -73,30 +76,31 @@ async function submit() {
 
 <style scoped>
 .login-page {
-  min-height: 100vh;
+  /* dvh：iOS Safari 地址栏收起时不再遮挡表单 */
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--am-bg);
-  padding: 24px;
+  padding: var(--am-space-5);
 }
 .login-card {
   width: 100%;
   max-width: 420px;
   background: var(--am-bg-elevated);
   border: 1px solid var(--am-border);
-  border-radius: 18px;
+  border-radius: var(--am-radius-lg);
   padding: 32px 32px 24px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, .35);
+  box-shadow: var(--am-shadow);
 }
-.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.brand { display: flex; align-items: center; gap: var(--am-space-3); margin-bottom: var(--am-space-5); }
 .brand-icon { color: var(--am-primary); }
-.brand-name { font-size: 17px; font-weight: 700; letter-spacing: .2px; }
-.brand-sub { font-size: 12px; color: var(--am-text-dim); margin-top: 2px; }
-.login-title { margin: 0; font-size: 22px; font-weight: 700; }
-.login-desc { margin: 6px 0 20px; font-size: 13px; color: var(--am-text-dim); line-height: 1.6; }
+.brand-name { font-size: var(--am-font-lg); font-weight: 700; letter-spacing: .2px; }
+.brand-sub { font-size: var(--am-font-xs); color: var(--am-text-dim); margin-top: 2px; }
+.login-title { margin: 0; font-size: var(--am-font-2xl); font-weight: 700; }
+.login-desc { margin: 6px 0 20px; font-size: var(--am-font-sm); color: var(--am-text-dim); line-height: var(--am-leading-relaxed); }
 .login-form :deep(.el-form-item__label) { font-weight: 500; padding-bottom: 6px; }
-.login-btn { width: 100%; margin-top: 4px; border-radius: 12px; font-weight: 600; }
-.login-alert { margin-bottom: 12px; border-radius: 10px; }
-.login-foot { margin-top: 18px; text-align: center; font-size: 12px; color: var(--am-text-dim); }
+.login-btn { width: 100%; margin-top: 4px; border-radius: var(--am-radius-md); font-weight: 600; }
+.login-alert { margin-bottom: var(--am-space-3); border-radius: var(--am-radius-md); }
+.login-foot { margin-top: 18px; text-align: center; font-size: var(--am-font-xs); color: var(--am-text-dim); }
 </style>

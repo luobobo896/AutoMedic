@@ -5,7 +5,7 @@
         <h2 class="am-page-title">用户管理</h2>
         <p class="am-page-desc">按租户维护账号与角色；平台超管可跨租户创建用户。</p>
       </div>
-      <el-button class="am-btn-soft" :icon="'Plus'" @click="openCreate">新增用户</el-button>
+      <el-button :icon="'Plus'" @click="openCreate">新增用户</el-button>
     </div>
 
     <div class="am-card">
@@ -81,8 +81,8 @@
         </div>
       </el-form>
       <template #footer>
-        <el-button class="am-btn-soft" @click="dialog = false">取消</el-button>
-        <el-button type="primary" class="am-btn-primary" @click="submit">保存</el-button>
+        <el-button @click="dialog = false">取消</el-button>
+        <el-button type="primary" @click="submit">保存</el-button>
       </template>
     </el-dialog>
   </div>

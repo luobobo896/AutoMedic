@@ -88,7 +88,7 @@
             </el-table-column>
             <el-table-column label="模型" width="150">
               <template #default="{ row }">
-                <div style="font-size:12px">
+                <div style="font-size: var(--am-font-xs)">
                   <div>修复：{{ row.model?.name || '继承项目' }}</div>
                   <div class="am-text-dim">审查：{{ row.review_model?.name || '同修复' }}</div>
                 </div>

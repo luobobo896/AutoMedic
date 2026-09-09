@@ -1,7 +1,7 @@
 <template>
   <div class="am-page">
     <div class="am-card">
-      <div class="am-toolbar"><span style="font-weight:600">dsh 运行参数</span></div>
+      <div class="am-toolbar"><span class="am-card__title">dsh 运行参数</span></div>
       <el-form :model="dsh" label-width="160px">
         <el-form-item label="dsh 可执行文件">
           <el-input :model-value="dsh.bin" disabled />
@@ -44,7 +44,7 @@
     </div>
 
     <div class="am-card">
-      <div class="am-toolbar"><span style="font-weight:600">Open Code Review</span></div>
+      <div class="am-toolbar"><span class="am-card__title">Open Code Review</span></div>
       <el-form :model="ocr" label-width="160px">
         <el-form-item label="ocr 可执行文件">
           <el-input :model-value="ocr.bin" disabled />
@@ -76,7 +76,7 @@
     </div>
 
     <div class="am-card">
-      <div class="am-toolbar"><span style="font-weight:600">Git 与发布</span></div>
+      <div class="am-toolbar"><span class="am-card__title">Git 与发布</span></div>
       <el-form :model="git" label-width="160px">
         <el-form-item label="隔离工作区根目录">
           <el-input :model-value="git.workspace_root" disabled />
@@ -84,7 +84,7 @@
         </el-form-item>
         <el-form-item label="克隆深度">
           <el-input-number v-model="git.depth" :min="0" />
-          <span class="am-text-dim" style="margin-left:8px;font-size:12px">0 为全量克隆</span>
+          <span class="am-text-dim" style="margin-left:8px;font-size: var(--am-font-xs)">0 为全量克隆</span>
         </el-form-item>
         <el-form-item label="复用工作区"><el-switch v-model="git.reuse_workspace" /></el-form-item>
         <el-form-item label="修复分支前缀"><el-input v-model="git.branch_prefix" /></el-form-item>
@@ -104,7 +104,7 @@
       <div>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
         <el-button @click="load">重新读取</el-button>
-        <span class="am-text-dim" style="margin-left:12px;font-size:12px">
+        <span class="am-text-dim" style="margin-left:12px;font-size: var(--am-font-xs)">
           修改即时生效（内存中）；重启后回退为配置文件中的值，建议同步修改 configs/config.yaml
         </span>
       </div>
@@ -208,7 +208,7 @@ onMounted(load)
   margin: 0;
   max-width: 36em;
   color: var(--am-text-dim);
-  font-size: 12px;
+  font-size: var(--am-font-xs);
   line-height: 1.6;
 }
 </style>

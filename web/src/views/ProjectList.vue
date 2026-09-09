@@ -85,7 +85,7 @@
       </div>
 
       <el-pagination
-        style="margin-top:12px; justify-content:flex-end"
+        class="am-pagination"
         layout="total, sizes, prev, pager, next"
         :total="total" v-model:current-page="query.page" v-model:page-size="query.page_size"
         @current-change="load" @size-change="search"
@@ -114,7 +114,7 @@
         </el-form-item>
 
         <el-collapse v-model="advanced">
-          <el-collapse-item name="adv" title="高级选项（可稍后在项目设置里改）">
+          <el-collapse-item name="adv" title="高级选项">
             <el-form-item label="默认修复模型">
               <el-select v-model="form.default_model_id" clearable placeholder="留空则用全局默认模型" style="width:100%">
                 <el-option v-for="m in models" :key="m.id" :label="`${m.provider?.name} / ${m.name}`" :value="m.id" />

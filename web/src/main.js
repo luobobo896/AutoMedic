@@ -27,4 +27,10 @@ app.use(ElementPlus, { locale: zhCn })
 // 只产生一次导航；等待期间由 index.html 的静态 loading 占位兜底，不会白屏。
 bootstrapSession().finally(() => {
   app.mount('#app')
+  // boot 占位淡出后移除，避免与应用层重叠
+  const boot = document.getElementById('am-boot')
+  if (boot) {
+    boot.classList.add('is-done')
+    setTimeout(() => boot.remove(), 200)
+  }
 })

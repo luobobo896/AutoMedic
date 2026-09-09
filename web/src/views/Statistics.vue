@@ -2,7 +2,7 @@
   <div class="am-page">
     <div class="am-card">
       <div class="am-toolbar">
-        <span style="font-weight:600">时间范围</span>
+        <span class="am-card__title">时间范围</span>
         <el-select v-model="days" style="width:120px" @change="loadAll">
           <el-option label="近 7 天" :value="7" />
           <el-option label="近 14 天" :value="14" />
@@ -16,7 +16,7 @@
           <el-option v-for="r in repos" :key="r.id" :label="r.name" :value="r.id" />
         </el-select>
         <div class="am-flex-1" />
-        <el-button :icon="'Refresh'" @click="loadAll" />
+        <el-button :icon="'Refresh'" aria-label="刷新" @click="loadAll" />
       </div>
 
       <div class="am-stat-grid">
@@ -26,11 +26,11 @@
         </div>
         <div class="am-stat">
           <div class="label">修复成功率</div>
-          <div class="value" style="color:#37b24d">{{ ov.success_rate || 0 }}%</div>
+          <div class="value am-value--success">{{ ov.success_rate || 0 }}%</div>
         </div>
         <div class="am-stat">
           <div class="label">失败</div>
-          <div class="value" style="color:#f0506e">{{ ov.failed || 0 }}</div>
+          <div class="value am-value--danger">{{ ov.failed || 0 }}</div>
         </div>
         <div class="am-stat">
           <div class="label">已忽略（非代码问题）</div>
@@ -38,7 +38,7 @@
         </div>
         <div class="am-stat">
           <div class="label">待人工确认</div>
-          <div class="value" style="color:#f59f00">{{ ov.confirming || 0 }}</div>
+          <div class="value am-value--warning">{{ ov.confirming || 0 }}</div>
         </div>
         <div class="am-stat">
           <div class="label">平均耗时</div>
@@ -48,33 +48,33 @@
     </div>
 
     <el-row :gutter="16">
-      <el-col :span="16">
+      <el-col :xs="24" :md="16">
         <div class="am-card">
-          <div class="am-toolbar"><span style="font-weight:600">修复趋势</span></div>
+          <div class="am-toolbar"><span class="am-card__title">修复趋势</span></div>
           <div ref="trendRef" style="height:320px" />
         </div>
       </el-col>
-      <el-col :span="8">
+      <el-col :xs="24" :md="8">
         <div class="am-card">
-          <div class="am-toolbar"><span style="font-weight:600">状态分布</span></div>
+          <div class="am-toolbar"><span class="am-card__title">状态分布</span></div>
           <div ref="pieRef" style="height:320px" />
         </div>
       </el-col>
     </el-row>
 
     <el-row :gutter="16">
-      <el-col :span="12">
+      <el-col :xs="24" :md="12">
         <div class="am-card">
           <div class="am-toolbar">
-            <span style="font-weight:600">按项目统计</span>
+            <span class="am-card__title">按项目统计</span>
           </div>
           <div ref="projectRef" style="height:300px" />
         </div>
       </el-col>
-      <el-col :span="12">
+      <el-col :xs="24" :md="12">
         <div class="am-card">
           <div class="am-toolbar">
-            <span style="font-weight:600">按维度统计</span>
+            <span class="am-card__title">按维度统计</span>
             <el-select v-model="group" size="small" style="width:130px" @change="loadGroup">
               <el-option label="仓库" value="repo" />
               <el-option label="触发规则" value="rule" />
@@ -88,7 +88,7 @@
     </el-row>
 
     <div class="am-card">
-      <div class="am-toolbar"><span style="font-weight:600">明细数据</span></div>
+      <div class="am-toolbar"><span class="am-card__title">明细数据</span></div>
       <el-table :data="byProject" size="small">
         <el-table-column prop="name" label="项目" min-width="160" />
         <el-table-column prop="total" label="任务数" width="100" />
@@ -110,6 +110,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { statsOverview, statsTrend, statsGroup, listProjects, listRepos } from '@/api'
 import { formatDuration } from '@/utils/format'
+import { AM_COLORS } from '@/constants/tokens'
 import * as echarts from 'echarts'
 
 const days = ref(14)
@@ -153,8 +154,8 @@ function baseAxis(rows) {
   return {
     type: 'category',
     data: rows.map(r => r.name || r.key),
-    axisLine: { lineStyle: { color: '#262d3d' } },
-    axisLabel: { color: '#8b94a7', interval: 0, rotate: rows.length > 6 ? 25 : 0 }
+    axisLine: { lineStyle: { color: AM_COLORS.axisLine } },
+    axisLabel: { color: AM_COLORS.labelText, interval: 0, rotate: rows.length > 6 ? 25 : 0 }
   }
 }
 
@@ -165,15 +166,15 @@ function renderTrend(rows) {
     trendChart.setOption({
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis' },
-      legend: { data: ['成功', '失败', '已忽略', '处理中'], textStyle: { color: '#8b94a7' }, top: 0 },
+      legend: { data: ['成功', '失败', '已忽略', '处理中'], textStyle: { color: AM_COLORS.labelText }, top: 0 },
       grid: { left: 40, right: 20, top: 40, bottom: 30 },
-      xAxis: { type: 'category', data: rows.map(r => r.day?.slice(5)), axisLine: { lineStyle: { color: '#262d3d' } }, axisLabel: { color: '#8b94a7' } },
-      yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e2430' } }, axisLabel: { color: '#8b94a7' } },
+      xAxis: { type: 'category', data: rows.map(r => r.day?.slice(5)), axisLine: { lineStyle: { color: AM_COLORS.axisLine } }, axisLabel: { color: AM_COLORS.labelText } },
+      yAxis: { type: 'value', splitLine: { lineStyle: { color: AM_COLORS.splitLine } }, axisLabel: { color: AM_COLORS.labelText } },
       series: [
-        { name: '成功', type: 'bar', stack: 'a', data: rows.map(r => r.success), itemStyle: { color: '#37b24d' } },
-        { name: '失败', type: 'bar', stack: 'a', data: rows.map(r => r.failed), itemStyle: { color: '#f0506e' } },
-        { name: '已忽略', type: 'bar', stack: 'a', data: rows.map(r => r.ignored), itemStyle: { color: '#5c6478' } },
-        { name: '处理中', type: 'bar', stack: 'a', data: rows.map(r => r.pending), itemStyle: { color: '#4f8cff' } }
+        { name: '成功', type: 'bar', stack: 'a', data: rows.map(r => r.success), itemStyle: { color: AM_COLORS.success } },
+        { name: '失败', type: 'bar', stack: 'a', data: rows.map(r => r.failed), itemStyle: { color: AM_COLORS.danger } },
+        { name: '已忽略', type: 'bar', stack: 'a', data: rows.map(r => r.ignored), itemStyle: { color: AM_COLORS.neutral } },
+        { name: '处理中', type: 'bar', stack: 'a', data: rows.map(r => r.pending), itemStyle: { color: AM_COLORS.primary } }
       ]
     }, true)
   })
@@ -184,17 +185,17 @@ function renderPie() {
     if (!pieRef.value) return
     pieChart = pieChart || echarts.init(pieRef.value)
     const data = [
-      { name: '成功', value: ov.value.success || 0, itemStyle: { color: '#37b24d' } },
-      { name: '失败', value: ov.value.failed || 0, itemStyle: { color: '#f0506e' } },
-      { name: '已忽略', value: ov.value.ignored || 0, itemStyle: { color: '#5c6478' } },
-      { name: '待确认', value: ov.value.confirming || 0, itemStyle: { color: '#f59f00' } },
-      { name: '待处理', value: ov.value.pending || 0, itemStyle: { color: '#4f8cff' } }
+      { name: '成功', value: ov.value.success || 0, itemStyle: { color: AM_COLORS.success } },
+      { name: '失败', value: ov.value.failed || 0, itemStyle: { color: AM_COLORS.danger } },
+      { name: '已忽略', value: ov.value.ignored || 0, itemStyle: { color: AM_COLORS.neutral } },
+      { name: '待确认', value: ov.value.confirming || 0, itemStyle: { color: AM_COLORS.warning } },
+      { name: '待处理', value: ov.value.pending || 0, itemStyle: { color: AM_COLORS.primary } }
     ].filter(d => d.value > 0)
     pieChart.setOption({
       backgroundColor: 'transparent',
       tooltip: { trigger: 'item' },
-      legend: { bottom: 0, textStyle: { color: '#8b94a7' } },
-      series: [{ type: 'pie', radius: ['42%', '66%'], center: ['50%', '44%'], data, label: { color: '#8b94a7' } }]
+      legend: { bottom: 0, textStyle: { color: AM_COLORS.labelText } },
+      series: [{ type: 'pie', radius: ['42%', '66%'], center: ['50%', '44%'], data, label: { color: AM_COLORS.labelText } }]
     }, true)
   })
 }
@@ -206,14 +207,14 @@ function renderProject() {
     projectChart.setOption({
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis' },
-      legend: { data: ['成功', '失败', '已忽略'], textStyle: { color: '#8b94a7' }, top: 0 },
+      legend: { data: ['成功', '失败', '已忽略'], textStyle: { color: AM_COLORS.labelText }, top: 0 },
       grid: { left: 40, right: 20, top: 40, bottom: 40 },
       xAxis: baseAxis(byProject.value),
-      yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e2430' } }, axisLabel: { color: '#8b94a7' } },
+      yAxis: { type: 'value', splitLine: { lineStyle: { color: AM_COLORS.splitLine } }, axisLabel: { color: AM_COLORS.labelText } },
       series: [
-        { name: '成功', type: 'bar', stack: 'a', data: byProject.value.map(r => r.success), itemStyle: { color: '#37b24d' } },
-        { name: '失败', type: 'bar', stack: 'a', data: byProject.value.map(r => r.failed), itemStyle: { color: '#f0506e' } },
-        { name: '已忽略', type: 'bar', stack: 'a', data: byProject.value.map(r => r.ignored), itemStyle: { color: '#5c6478' } }
+        { name: '成功', type: 'bar', stack: 'a', data: byProject.value.map(r => r.success), itemStyle: { color: AM_COLORS.success } },
+        { name: '失败', type: 'bar', stack: 'a', data: byProject.value.map(r => r.failed), itemStyle: { color: AM_COLORS.danger } },
+        { name: '已忽略', type: 'bar', stack: 'a', data: byProject.value.map(r => r.ignored), itemStyle: { color: AM_COLORS.neutral } }
       ]
     }, true)
   })
@@ -226,14 +227,14 @@ function renderGroup(rows) {
     groupChart.setOption({
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis' },
-      legend: { data: ['成功', '失败', '已忽略'], textStyle: { color: '#8b94a7' }, top: 0 },
+      legend: { data: ['成功', '失败', '已忽略'], textStyle: { color: AM_COLORS.labelText }, top: 0 },
       grid: { left: 40, right: 20, top: 40, bottom: 40 },
       xAxis: baseAxis(rows),
-      yAxis: { type: 'value', splitLine: { lineStyle: { color: '#1e2430' } }, axisLabel: { color: '#8b94a7' } },
+      yAxis: { type: 'value', splitLine: { lineStyle: { color: AM_COLORS.splitLine } }, axisLabel: { color: AM_COLORS.labelText } },
       series: [
-        { name: '成功', type: 'bar', stack: 'a', data: rows.map(r => r.success), itemStyle: { color: '#37b24d' } },
-        { name: '失败', type: 'bar', stack: 'a', data: rows.map(r => r.failed), itemStyle: { color: '#f0506e' } },
-        { name: '已忽略', type: 'bar', stack: 'a', data: rows.map(r => r.ignored), itemStyle: { color: '#5c6478' } }
+        { name: '成功', type: 'bar', stack: 'a', data: rows.map(r => r.success), itemStyle: { color: AM_COLORS.success } },
+        { name: '失败', type: 'bar', stack: 'a', data: rows.map(r => r.failed), itemStyle: { color: AM_COLORS.danger } },
+        { name: '已忽略', type: 'bar', stack: 'a', data: rows.map(r => r.ignored), itemStyle: { color: AM_COLORS.neutral } }
       ]
     }, true)
   })

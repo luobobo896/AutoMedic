@@ -2,8 +2,8 @@
   <div class="am-page">
     <div class="am-card">
       <div class="am-toolbar">
-        <span style="font-weight:600">选项字典</span>
-        <span class="am-text-dim" style="font-size:12px">表单下拉/多选的选项在此维护；启动只补缺，不覆盖已改项。厂家类型与模型标识是父子关系。</span>
+        <span class="am-card__title">选项字典</span>
+        <span class="am-text-dim" style="font-size: var(--am-font-xs)">表单下拉/多选的选项在此维护；启动只补缺，不覆盖已改项。厂家类型与模型标识是父子关系。</span>
         <div class="am-flex-1" />
         <el-button type="primary" :icon="'Plus'" @click="openCreate()">新增选项</el-button>
         <el-button :icon="'Refresh'" @click="reload" />
@@ -19,7 +19,7 @@
             @click="currentGroup = g.key"
           >
             <div>{{ g.name }}</div>
-            <div class="am-text-dim" style="font-size:11px">{{ g.key }} · {{ groupCount(g) }}</div>
+            <div class="am-text-dim" style="font-size: var(--am-font-xs)">{{ g.key }} · {{ groupCount(g) }}</div>
           </button>
         </aside>
         <section class="dict-items">
@@ -218,11 +218,11 @@ onMounted(async () => {
 .dict-groups { display: flex; flex-direction: column; gap: 4px; }
 .dict-group {
   text-align: left; border: 1px solid var(--am-border); background: var(--am-bg-inset);
-  color: var(--am-text); border-radius: 10px; padding: 10px 12px; cursor: pointer;
+  color: var(--am-text); border-radius: var(--am-radius-md); padding: 10px 12px; cursor: pointer;
 }
 .dict-group:hover { border-color: var(--am-border-strong); }
 .dict-group.is-current { border-color: var(--am-primary); background: var(--am-primary-soft); }
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
   .dict-layout { grid-template-columns: 1fr; }
 }
 </style>

@@ -5,7 +5,7 @@
         <h2 class="am-page-title">角色与权限</h2>
         <p class="am-page-desc">RBAC：用户绑定角色，角色勾选资源权限。内置角色可改权限、不可删除。</p>
       </div>
-      <el-button class="am-btn-soft" :icon="'Plus'" @click="openCreate">新增角色</el-button>
+      <el-button :icon="'Plus'" @click="openCreate">新增角色</el-button>
     </div>
 
     <div class="role-layout">
@@ -31,7 +31,7 @@
         <div class="role-editor-head">
           <div>
             <div class="role-editor-title">{{ form.name || current.name }}</div>
-            <div class="am-text-dim" style="font-size:12px;margin-top:4px">
+            <div class="am-text-dim" style="font-size: var(--am-font-xs);margin-top:4px">
               <template v-if="isSuperLocked">平台超管始终拥有全部权限，不在此树中裁剪。</template>
               <template v-else-if="current.builtin">内置角色：可调整权限树，不可删除编码。</template>
               <template v-else>自定义角色：勾选资源下的动作后保存。</template>
@@ -40,7 +40,6 @@
           <div class="role-editor-actions">
             <el-button
               v-if="current.builtin && !isSuperLocked"
-              class="am-btn-soft"
               @click="restoreDefault"
             >恢复默认</el-button>
             <el-button
@@ -51,7 +50,7 @@
             >
               <el-icon><Delete /></el-icon>
             </el-button>
-            <el-button type="primary" class="am-btn-primary" :loading="saving" @click="submit">保存</el-button>
+            <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
           </div>
         </div>
 
@@ -107,8 +106,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button class="am-btn-soft" @click="createDialog = false">取消</el-button>
-        <el-button type="primary" class="am-btn-primary" :loading="saving" @click="submitCreate">创建</el-button>
+        <el-button @click="createDialog = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="submitCreate">创建</el-button>
       </template>
     </el-dialog>
   </div>
@@ -282,7 +281,7 @@ onMounted(load)
   text-align: left;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--am-radius-md);
   padding: 10px 12px;
   color: var(--am-text);
   cursor: pointer;
@@ -293,8 +292,8 @@ onMounted(load)
   border-color: var(--am-border-strong);
 }
 .role-item-main { flex: 1; min-width: 0; }
-.role-name { font-size: 14px; font-weight: 600; }
-.role-code { font-size: 12px; color: var(--am-text-dim); margin-top: 2px; }
+.role-name { font-size: var(--am-font-md); font-weight: 600; }
+.role-code { font-size: var(--am-font-xs); color: var(--am-text-dim); margin-top: 2px; }
 .role-editor {
   background: var(--am-bg-elevated);
   border: 1px solid var(--am-border);
@@ -309,24 +308,24 @@ onMounted(load)
   gap: 12px;
   margin-bottom: 16px;
 }
-.role-editor-title { font-size: 16px; font-weight: 600; }
+.role-editor-title { font-size: var(--am-font-lg); font-weight: 600; }
 .role-editor-actions { display: flex; align-items: center; gap: 8px; }
 .perm-tree {
   background: var(--am-bg-inset);
   border: 1px solid var(--am-border);
-  border-radius: 12px;
+  border-radius: var(--am-radius-lg);
   padding: 10px 12px;
   max-height: 56vh;
   overflow: auto;
 }
 .perm-tree :deep(.el-tree-node__content) {
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--am-radius-md);
 }
 .perm-tree :deep(.el-tree-node__content:hover) {
   background: var(--am-bg-elevated);
 }
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
   .role-layout { grid-template-columns: 1fr; }
 }
 </style>

@@ -2,8 +2,8 @@
   <div class="am-page">
     <div class="am-card">
       <div class="am-toolbar">
-        <span style="font-weight:600">修复规则</span>
-        <span class="am-text-dim" style="font-size:12px">规则决定告警是否进入代码修复流程，未命中规则的事件默认忽略</span>
+        <span class="am-card__title">修复规则</span>
+        <span class="am-text-dim" style="font-size: var(--am-font-xs)">规则决定告警是否进入代码修复流程，未命中规则的事件默认忽略</span>
         <div class="am-flex-1" />
         <el-button type="primary" :icon="'Plus'" @click="openCreate">新增规则</el-button>
         <el-button :icon="'Refresh'" @click="load" />

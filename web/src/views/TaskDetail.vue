@@ -47,7 +47,7 @@
 
       <aside class="task-side" aria-label="任务信息与结果">
         <div class="am-card">
-          <div class="am-toolbar"><span style="font-weight:600">任务信息</span></div>
+          <div class="am-toolbar"><span class="am-card__title">任务信息</span></div>
           <el-descriptions :column="1" border size="small">
             <el-descriptions-item label="项目">{{ task.project?.name || '-' }}</el-descriptions-item>
             <el-descriptions-item label="仓库">{{ task.repo?.name || '-' }}</el-descriptions-item>
@@ -65,7 +65,7 @@
             </el-descriptions-item>
             <el-descriptions-item label="模型">
               {{ task.model?.name || task.dsh_model || '-' }}
-              <div class="am-text-dim" style="font-size:11px">
+              <div class="am-text-dim" style="font-size: var(--am-font-xs)">
                 provider={{ task.dsh_provider || '-' }} ctx={{ formatTokens(task.input_context) }}/{{ formatTokens(task.output_context) }}
               </div>
             </el-descriptions-item>
@@ -77,7 +77,7 @@
             <el-descriptions-item label="人工确认">
               <template v-if="task.confirmed_by">
                 {{ task.confirmed_by }} @ {{ formatTime(task.confirmed_at) }}
-                <div class="am-text-dim" style="font-size:11px">{{ task.confirm_note }}</div>
+                <div class="am-text-dim" style="font-size: var(--am-font-xs)">{{ task.confirm_note }}</div>
               </template>
               <span v-else class="am-text-dim">-</span>
             </el-descriptions-item>
@@ -85,7 +85,7 @@
         </div>
 
         <div class="am-card">
-          <div class="am-toolbar"><span style="font-weight:600">修复结果</span></div>
+          <div class="am-toolbar"><span class="am-card__title">修复结果</span></div>
           <el-descriptions :column="1" border size="small">
             <el-descriptions-item label="根因分析">{{ task.diagnosis || '-' }}</el-descriptions-item>
             <el-descriptions-item label="修复摘要">
@@ -101,11 +101,11 @@
               <pre style="margin:0;white-space:pre-wrap">{{ task.diff_stat || '-' }}</pre>
             </el-descriptions-item>
             <el-descriptions-item label="错误信息">
-              <span style="color:#f7768e">{{ task.error_msg || '-' }}</span>
+              <span class="am-text-danger">{{ task.error_msg || '-' }}</span>
             </el-descriptions-item>
           </el-descriptions>
           <div class="am-toolbar" style="margin-top:12px">
-            <span style="font-weight:600">补丁 Diff</span>
+            <span class="am-card__title">补丁 Diff</span>
             <div class="am-flex-1" />
             <el-button size="small" @click="copyPatch" :disabled="!patchText">复制补丁</el-button>
           </div>
@@ -116,13 +116,13 @@
         </div>
 
         <div class="am-card">
-          <div class="am-toolbar"><span style="font-weight:600">触发事件</span></div>
+          <div class="am-toolbar"><span class="am-card__title">触发事件</span></div>
           <template v-if="task.event">
             <div style="margin-bottom:6px">
               <el-tag size="small" :type="LEVEL_META[task.event.level]?.type">{{ task.event.level }}</el-tag>
               <span style="margin-left:6px">{{ task.event.title }}</span>
             </div>
-            <div class="am-text-dim" style="font-size:12px;margin-bottom:6px">
+            <div class="am-text-dim" style="font-size: var(--am-font-xs);margin-bottom:6px">
               {{ task.event.source }} · {{ formatTime(task.event.occurred_at) }}
             </div>
             <div class="am-diff" style="max-height:220px">{{ task.event.stack || task.event.message || '-' }}</div>
@@ -131,9 +131,9 @@
         </div>
 
         <div class="am-card">
-          <div class="am-toolbar"><span style="font-weight:600">dsh 调用命令</span></div>
-          <div class="am-diff" style="max-height:140px; font-size:11px">{{ task.dsh_cmd || '-' }}</div>
-          <div class="am-text-dim" style="font-size:12px;margin-top:6px">
+          <div class="am-toolbar"><span class="am-card__title">dsh 调用命令</span></div>
+          <div class="am-diff" style="max-height:140px; font-size: var(--am-font-xs)">{{ task.dsh_cmd || '-' }}</div>
+          <div class="am-text-dim" style="font-size: var(--am-font-xs);margin-top:6px">
             退出码：{{ task.dsh_exit_code }}
           </div>
         </div>
@@ -439,7 +439,7 @@ onBeforeUnmount(() => { unmounted = true; stopPolling(); stopWS() })
   font-weight: 600;
 }
 .term-meta {
-  font-size: 12px;
+  font-size: var(--am-font-xs);
 }
 .term-card :deep(.am-terminal) {
   flex: 1 1 0;
@@ -464,7 +464,7 @@ onBeforeUnmount(() => { unmounted = true; stopPolling(); stopWS() })
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-@media (max-width: 1024px) {
+@media (max-width: 1023.98px) {
   .am-task-detail {
     height: auto;
     overflow: auto;
