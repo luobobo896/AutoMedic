@@ -142,8 +142,10 @@ type Project struct {
 	// 项目备注/上下文：写入 dsh 指令文件，帮助定位业务语义
 	Context string `gorm:"type:text" json:"context"`
 
-	// 非持久化：关联仓库数量（列表接口填充）
-	RepoCount int64 `gorm:"-" json:"repo_count"`
+	// 非持久化：关联数量（列表接口填充，用于展示接入进度）
+	RepoCount  int64 `gorm:"-" json:"repo_count"`
+	RuleCount  int64 `gorm:"-" json:"rule_count"`
+	TokenCount int64 `gorm:"-" json:"token_count"`
 }
 
 // Repository 仓库

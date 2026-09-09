@@ -28,7 +28,8 @@ type ServerConfig struct {
 	AdminToken   string `yaml:"admin_token"`   // 管理 API 鉴权令牌（X-Admin-Token）
 	ReadTimeout  int    `yaml:"read_timeout"`  // 秒
 	WriteTimeout int    `yaml:"write_timeout"` // 秒
-	// 允许的前端源（CORS），空则默认 ["*"]
+	// 允许的前端源（CORS）。空则不挂 CORS 中间件：同源部署可用；
+	// 前后端分离必须显式填写，否则浏览器会拦截跨域响应。
 	AllowOrigins []string `yaml:"allow_origins"`
 	// 可信反向代理 IP/CIDR；为空表示不信任任何代理，ClientIP 取 TCP 对端
 	TrustedProxies []string `yaml:"trusted_proxies"`

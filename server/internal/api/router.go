@@ -36,24 +36,21 @@ func NewRouter(d *Deps) *gin.Engine {
 	_ = r.SetTrustedProxies(trustedProxies)
 	// CORS 允许的源来自 server.allow_origins。
 	// 为空表示不开放跨域（同源部署即可），绝不回退 "*" + 允许凭据 —— 那等于任意站点可携 Cookie/令牌调接口。
+	// 只在显式配置了允许的源时才挂载 CORS 中间件。
+	// 千万不能用「AllowOriginFunc 恒 false」来表达不开放跨域：gin-cors 对带 Origin 头
+	// 且判定不通过的请求会直接 403，同源部署（浏览器 POST 同样带 Origin）也会被拒。
 	allowOrigins := d.Cfg.Server.AllowOrigins
-	if len(allowOrigins) == 0 {
-		slog.Warn("server.allow_origins 未配置，已关闭跨域；前后端分离部署需显式配置允许的源")
-	}
-	corsCfg := cors.Config{
-		AllowMethods:  []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:  []string{"Origin", "Content-Type", "Authorization", "X-Admin-Token", "X-AM-Token", "X-Tenant-ID"},
-		ExposeHeaders: []string{"Content-Length"},
-	}
 	if len(allowOrigins) > 0 {
-		corsCfg.AllowOrigins = allowOrigins
-		corsCfg.AllowCredentials = true
+		r.Use(cors.New(cors.Config{
+			AllowOrigins:     allowOrigins,
+			AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Admin-Token", "X-AM-Token", "X-Tenant-ID"},
+			ExposeHeaders:    []string{"Content-Length"},
+			AllowCredentials: true,
+		}))
 	} else {
-		// gin-cors 在 AllowOrigins 为空且没有 AllowOriginFunc 时会直接 panic，
-		// 所以用恒 false 的判定表达"不开放跨域"（不返回 Access-Control-Allow-Origin 头）。
-		corsCfg.AllowOriginFunc = func(string) bool { return false }
+		slog.Warn("server.allow_origins 未配置，已不返回任何 CORS 响应头（同源部署可用；前后端分离部署需显式配置允许的源）")
 	}
-	r.Use(cors.New(corsCfg))
 
 	// 静态资源（前端构建产物）
 	if d.WebDir != "" {

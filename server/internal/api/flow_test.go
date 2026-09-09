@@ -416,6 +416,49 @@ func TestClickThroughAllAdminFlows(t *testing.T) {
 	e.ok(http.MethodPost, "/api/v1/auth/logout", map[string]any{})
 }
 
+func TestListProjectsReportsAccessCounts(t *testing.T) {
+	e := newFlow(t)
+	var tenant model.Tenant
+	if err := e.db.First(&tenant).Error; err != nil {
+		t.Fatal(err)
+	}
+	p := &model.Project{TenantID: tenant.ID, Name: "接入进度", Key: "onboard-counts", Enabled: true}
+	if err := e.db.Create(p).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.Create(&model.Repository{
+		TenantID: tenant.ID, ProjectID: p.ID, Name: "shop-api", URL: "git@example.com:acme/shop-api.git", Branch: "main", Enabled: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.Create(&model.Rule{
+		TenantID: tenant.ID, ProjectID: p.ID, Name: "panic", Enabled: true, Action: "fix",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.Create(&model.IngestToken{
+		TenantID: tenant.ID, ProjectID: p.ID, Name: "collector", Prefix: "am_", TokenHash: "hash-onboard-counts", Enabled: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	got := e.ok(http.MethodGet, "/api/v1/projects?keyword=onboard-counts", nil)
+	list := asList(got)
+	if len(list) != 1 {
+		t.Fatalf("应只命中测试项目, got=%d %+v", len(list), list)
+	}
+	row, _ := list[0].(map[string]any)
+	if n, _ := row["repo_count"].(float64); n != 1 {
+		t.Fatalf("repo_count=%v want 1 row=%+v", row["repo_count"], row)
+	}
+	if n, _ := row["rule_count"].(float64); n != 1 {
+		t.Fatalf("rule_count=%v want 1", row["rule_count"])
+	}
+	if n, _ := row["token_count"].(float64); n != 1 {
+		t.Fatalf("token_count=%v want 1", row["token_count"])
+	}
+}
+
 func TestRetrySuccessfulTaskRejected(t *testing.T) {
 	e := newFlow(t)
 	var tenant model.Tenant

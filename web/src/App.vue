@@ -1,6 +1,5 @@
 <template>
-  <div id="app">
-    <!-- 登录等公开页不套后台布局 -->
+  <div class="am-root">
     <router-view v-if="isPublic" />
     <AppLayout v-else />
   </div>
@@ -14,3 +13,7 @@ import AppLayout from '@/layout/AppLayout.vue'
 const route = useRoute()
 const isPublic = computed(() => !!route.meta?.public)
 </script>
+
+<style>
+.am-root { height: 100%; background: var(--am-bg, #161618); }
+</style>

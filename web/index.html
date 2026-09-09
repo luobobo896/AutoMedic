@@ -5,11 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AutoMedic · 自动修复平台</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #12161f; color: #8b94a7; }
+      /* 与 --am-bg 同色，避免 EP 默认浅色 / 启动脚本切换导致闪黑或闪白 */
+      html, body, #app {
+        margin: 0;
+        height: 100%;
+        background: #161618;
+        color: #9a9aa3;
+        color-scheme: dark;
+      }
       #am-boot {
         position: fixed; inset: 0; display: flex;
         align-items: center; justify-content: center;
-        font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+        font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+        background: #161618;
+        color: #9a9aa3;
       }
     </style>
   </head>

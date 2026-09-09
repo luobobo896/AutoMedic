@@ -29,16 +29,36 @@ func (h *Handlers) ListProjects(c *gin.Context) {
 		Cnt       int64
 	}
 	h.tdb(c).Model(&model.Repository{}).Select("project_id, count(*) as cnt").Group("project_id").Scan(&repos)
+	var rules []struct {
+		ProjectID uint `gorm:"column:project_id"`
+		Cnt       int64
+	}
+	h.tdb(c).Model(&model.Rule{}).Select("project_id, count(*) as cnt").Group("project_id").Scan(&rules)
+	var tokens []struct {
+		ProjectID uint `gorm:"column:project_id"`
+		Cnt       int64
+	}
+	h.tdb(c).Model(&model.IngestToken{}).Select("project_id, count(*) as cnt").Group("project_id").Scan(&tokens)
 	if err := q.Order("id DESC").Offset((page - 1) * size).Limit(size).Find(&list).Error; err != nil {
 		ServerError(c, err)
 		return
 	}
+	repoCnt := make(map[uint]int64, len(repos))
+	for _, r := range repos {
+		repoCnt[r.ProjectID] = r.Cnt
+	}
+	ruleCnt := make(map[uint]int64, len(rules))
+	for _, r := range rules {
+		ruleCnt[r.ProjectID] = r.Cnt
+	}
+	tokenCnt := make(map[uint]int64, len(tokens))
+	for _, r := range tokens {
+		tokenCnt[r.ProjectID] = r.Cnt
+	}
 	for i := range list {
-		for _, r := range repos {
-			if r.ProjectID == list[i].ID {
-				list[i].RepoCount = r.Cnt
-			}
-		}
+		list[i].RepoCount = repoCnt[list[i].ID]
+		list[i].RuleCount = ruleCnt[list[i].ID]
+		list[i].TokenCount = tokenCnt[list[i].ID]
 	}
 	OKPage(c, list, Page{Page: page, PageSize: size, Total: total})
 }

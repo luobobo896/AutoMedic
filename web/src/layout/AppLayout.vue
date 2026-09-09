@@ -1,16 +1,17 @@
 <template>
-  <el-container class="layout">
-    <el-aside :width="collapsed ? '64px' : '210px'" class="aside">
+  <el-container class="layout" :class="{ 'is-compact': compact, 'is-nav-open': compact && !collapsed }">
+    <div v-if="compact && !collapsed" class="nav-scrim" @click="collapsed = true" />
+    <el-aside v-show="!(compact && collapsed)" :width="asideWidth" class="aside">
       <div class="logo">
-        <el-icon :size="22" color="#6aa1ff"><FirstAidKit /></el-icon>
+        <el-icon :size="22" class="logo-icon"><FirstAidKit /></el-icon>
         <span v-show="!collapsed">AutoMedic</span>
       </div>
       <el-menu
         :default-active="activePath"
-        :collapse="collapsed"
+        :collapse="collapsed && !compact"
         background-color="transparent"
-        text-color="#a7b0c2"
-        active-text-color="#6aa1ff"
+        text-color="var(--am-text-dim)"
+        active-text-color="var(--am-primary)"
         @select="onMenuSelect"
       >
         <el-menu-item v-for="m in menus" :key="m.path" :index="m.path">
@@ -23,7 +24,7 @@
     <el-container>
       <el-header class="header">
         <div class="header-left">
-          <el-button text :icon="collapsed ? 'Expand' : 'Fold'" @click="collapsed = !collapsed" />
+          <el-button text :icon="collapsed ? 'Expand' : 'Fold'" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" @click="collapsed = !collapsed" />
           <el-breadcrumb separator="/">
             <el-breadcrumb-item>AutoMedic</el-breadcrumb-item>
             <el-breadcrumb-item>{{ route.meta.title || '' }}</el-breadcrumb-item>
@@ -78,7 +79,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, UserFilled, FirstAidKit } from '@element-plus/icons-vue'
 import { visibleMenus } from '@/router'
@@ -90,7 +91,13 @@ const route = useRoute()
 const router = useRouter()
 const { state, isSuper, reset } = useAuth()
 
-const collapsed = ref(false)
+const collapsed = ref(typeof window !== 'undefined' && window.innerWidth < 1024)
+const lastNarrow = ref(collapsed.value)
+const compact = ref(typeof window !== 'undefined' && window.innerWidth < 768)
+const asideWidth = computed(() => {
+  if (compact.value) return '210px'
+  return collapsed.value ? '64px' : '210px'
+})
 const pwdDialog = ref(false)
 const pwdLoading = ref(false)
 const pwd = ref({ old_password: '', new_password: '' })
@@ -108,9 +115,24 @@ const activePath = computed(() => {
 })
 
 function onMenuSelect(index) {
+  if (compact.value) collapsed.value = true
   if (route.path === index) return
   router.push(index)
 }
+
+function syncAside() {
+  compact.value = window.innerWidth < 768
+  const narrow = window.innerWidth < 1024
+  if (narrow !== lastNarrow.value) {
+    collapsed.value = narrow
+    lastNarrow.value = narrow
+  }
+}
+onMounted(() => {
+  syncAside()
+  window.addEventListener('resize', syncAside)
+})
+onUnmounted(() => window.removeEventListener('resize', syncAside))
 
 async function onCommand(cmd) {
   if (cmd === 'password') {
@@ -141,7 +163,7 @@ async function submitPassword() {
 </script>
 
 <style scoped>
-.layout { height: 100vh; overflow: hidden; }
+.layout { height: 100vh; overflow: hidden; position: relative; }
 .layout > .el-container {
   flex: 1 1 0;
   min-width: 0;
@@ -150,8 +172,23 @@ async function submitPassword() {
   display: flex;
   flex-direction: column;
 }
-.aside { background: #12141a; border-right: 1px solid var(--am-border); transition: width .2s; overflow: hidden; }
+.aside { background: var(--am-nav); border-right: 1px solid var(--am-border); transition: width var(--am-duration); overflow: hidden; }
+.nav-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: var(--am-z-nav);
+  background: var(--am-scrim);
+}
+.layout.is-compact .aside {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: var(--am-z-overlay);
+  height: 100%;
+  box-shadow: var(--am-shadow);
+}
 .logo { height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 18px; color: var(--am-text); font-weight: 600; font-size: 15px; }
+.logo-icon { color: var(--am-primary); }
 .header {
   display: flex;
   align-items: center;
@@ -162,6 +199,7 @@ async function submitPassword() {
   border-bottom: 1px solid var(--am-border);
 }
 .header-left { display: flex; align-items: center; gap: 12px; }
+.header-left :deep(.el-button) { min-width: 44px; min-height: 44px; }
 .header-right { display: flex; align-items: center; gap: 12px; }
 .main { background: var(--am-bg); padding: 0; --el-main-padding: 0; overflow-x: hidden; overflow-y: auto; }
 .main.main-fill {
@@ -178,6 +216,10 @@ async function submitPassword() {
   height: 100%;
 }
 .dsh-tag { border-radius: 999px; }
+@media (max-width: 767px) {
+  .dsh-tag { display: none; }
+  .user-name { max-width: 72px; }
+}
 
 .user-chip {
   display: inline-flex; align-items: center; gap: 6px;

@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-card">
       <div class="brand">
-        <el-icon :size="26" color="#6aa1ff"><FirstAidKit /></el-icon>
+        <el-icon :size="26" class="brand-icon"><FirstAidKit /></el-icon>
         <div>
           <div class="brand-name">AutoMedic</div>
           <div class="brand-sub">事件驱动的自动修复平台</div>
@@ -77,7 +77,7 @@ async function submit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(1200px 600px at 50% -10%, #23304a 0%, var(--am-bg) 55%);
+  background: var(--am-bg);
   padding: 24px;
 }
 .login-card {
@@ -90,6 +90,7 @@ async function submit() {
   box-shadow: 0 24px 60px rgba(0, 0, 0, .35);
 }
 .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.brand-icon { color: var(--am-primary); }
 .brand-name { font-size: 17px; font-weight: 700; letter-spacing: .2px; }
 .brand-sub { font-size: 12px; color: var(--am-text-dim); margin-top: 2px; }
 .login-title { margin: 0; font-size: 22px; font-weight: 700; }
