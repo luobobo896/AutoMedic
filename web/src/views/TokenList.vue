@@ -40,7 +40,8 @@
 
       <el-pagination style="margin-top:12px; justify-content:flex-end"
         layout="total, sizes, prev, pager, next" :total="total"
-        v-model:current-page="query.page" v-model:page-size="query.page_size" @change="load" />
+        v-model:current-page="query.page" v-model:page-size="query.page_size"
+        @current-change="load" @size-change="search" />
     </div>
 
     <div class="am-card">
@@ -125,6 +126,12 @@ async function load() {
   } finally { loading.value = false }
 }
 
+// 每页条数变化后必须回到第 1 页，否则停留在旧页码可能拿到空列表
+function search() {
+  query.page = 1
+  return load()
+}
+
 async function submit() {
   const payload = {
     project_id: form.value.project_id,
@@ -138,7 +145,7 @@ async function submit() {
   await ElMessageBox.alert(
     `令牌仅显示一次，请立即保存：\n\n${r.data.plain_token}`,
     '创建成功', { confirmButtonText: '我已保存' }
-  )
+  ).catch(() => { /* ESC / 点关闭同样按已读处理 */ })
   load()
 }
 
@@ -149,7 +156,8 @@ async function toggle(row) {
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm(`确认删除令牌「${row.name}」？删除后使用该令牌的采集器将立即失效`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认删除令牌「${row.name}」？删除后使用该令牌的采集器将立即失效`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteToken(row.id)
   ElMessage.success('已删除')
   load()

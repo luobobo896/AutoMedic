@@ -2,17 +2,17 @@
   <div class="am-page">
     <div class="am-card">
       <div class="am-toolbar">
-        <el-select v-model="query.project_id" clearable placeholder="全部项目" style="width:180px" @change="load">
+        <el-select v-model="query.project_id" clearable placeholder="全部项目" style="width:180px" @change="search">
           <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
         </el-select>
-        <el-select v-model="query.status" clearable placeholder="全部状态" style="width:150px" @change="load">
+        <el-select v-model="query.status" clearable placeholder="全部状态" style="width:150px" @change="search">
           <el-option v-for="(v, k) in STATUS_META" :key="k" :label="v.label" :value="k" />
         </el-select>
-        <el-select v-model="query.mode" clearable placeholder="全部模式" style="width:130px" @change="load">
+        <el-select v-model="query.mode" clearable placeholder="全部模式" style="width:130px" @change="search">
           <el-option label="全自动" value="auto" />
           <el-option label="半自动" value="semi" />
         </el-select>
-        <el-input v-model="query.keyword" placeholder="摘要 / 分支 / 提交" clearable style="width:200px" @keyup.enter="load" />
+        <el-input v-model="query.keyword" placeholder="摘要 / 分支 / 提交" clearable style="width:200px" @keyup.enter="search" @clear="search" />
         <div class="am-flex-1" />
         <el-button :icon="'Refresh'" @click="load" />
       </div>
@@ -72,7 +72,8 @@
 
       <el-pagination style="margin-top:12px; justify-content:flex-end"
         layout="total, sizes, prev, pager, next" :total="total"
-        v-model:current-page="query.page" v-model:page-size="query.page_size" @change="load" />
+        v-model:current-page="query.page" v-model:page-size="query.page_size"
+        @current-change="load" @size-change="search" />
     </div>
   </div>
 </template>
@@ -96,6 +97,12 @@ async function load() {
     list.value = r.data?.list || []
     total.value = r.data?.total || 0
   } finally { loading.value = false }
+}
+
+// 筛选条件/每页条数变化后必须回到第 1 页，否则停留在旧页码可能拿到空列表
+function search() {
+  query.page = 1
+  return load()
 }
 
 function canResumePush(row) {

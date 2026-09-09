@@ -4,9 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AutoMedic · 自动修复平台</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #12161f; color: #8b94a7; }
+      #am-boot {
+        position: fixed; inset: 0; display: flex;
+        align-items: center; justify-content: center;
+        font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><div id="am-boot">AutoMedic 正在恢复会话…</div></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

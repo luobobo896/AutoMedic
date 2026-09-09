@@ -2,7 +2,7 @@
   <div class="am-page">
     <div class="am-card">
       <div class="am-toolbar">
-        <el-input v-model="query.keyword" placeholder="项目名称 / 标识" clearable style="width:240px" @keyup.enter="load" />
+        <el-input v-model="query.keyword" placeholder="项目名称 / 标识" clearable style="width:240px" @keyup.enter="search" @clear="search" />
         <el-button type="primary" :icon="'Plus'" @click="openCreate">新建项目</el-button>
         <div class="am-flex-1" />
         <el-button :icon="'Refresh'" @click="load" />
@@ -43,7 +43,7 @@
         style="margin-top:12px; justify-content:flex-end"
         layout="total, sizes, prev, pager, next"
         :total="total" v-model:current-page="query.page" v-model:page-size="query.page_size"
-        @change="load"
+        @current-change="load" @size-change="search"
       />
     </div>
 
@@ -110,6 +110,12 @@ async function load() {
   }
 }
 
+// 筛选条件/每页条数变化后必须回到第 1 页，否则停留在旧页码可能拿到空列表
+function search() {
+  query.page = 1
+  return load()
+}
+
 function openCreate() {
   form.value = { name: '', key: '', fix_mode: 'semi', enabled: true, default_model_id: null, default_review_model_id: null }
   dialog.value = true
@@ -149,7 +155,8 @@ async function toggle(row, field, v) {
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm(`确认删除项目「${row.name}」？其下仓库、规则与令牌会一并删除`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认删除项目「${row.name}」？其下仓库、规则与令牌会一并删除`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteProject(row.id)
   ElMessage.success('已删除')
   load()

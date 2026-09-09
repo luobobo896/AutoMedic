@@ -346,7 +346,8 @@ async function testConn(row) {
 }
 
 async function removeRepo(row) {
-  await ElMessageBox.confirm(`确认移除仓库「${row.name}」？`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认移除仓库「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteRepo(row.id)
   load()
 }
@@ -397,7 +398,8 @@ async function saveRule() {
 }
 
 async function removeRule(row) {
-  await ElMessageBox.confirm(`确认删除规则「${row.name}」？`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认删除规则「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteRule(row.id)
   load()
 }
@@ -407,7 +409,7 @@ async function createProjectToken() {
   await ElMessageBox.alert(
     `请在日志采集器中配置该令牌，它只会显示一次：\n\n${r.data.plain_token}`,
     '令牌已创建', { confirmButtonText: '我已保存' }
-  )
+  ).catch(() => { /* ESC / 点关闭同样按已读处理 */ })
   load()
 }
 
@@ -417,7 +419,8 @@ async function toggleToken(row) {
 }
 
 async function removeToken(row) {
-  await ElMessageBox.confirm('确认删除该令牌？', '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm('确认删除该令牌？', '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteToken(row.id)
   load()
 }

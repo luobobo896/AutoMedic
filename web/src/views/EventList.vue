@@ -9,10 +9,10 @@
       </div>
 
       <div class="am-toolbar">
-        <el-select v-model="query.project_id" clearable placeholder="全部项目" style="width:180px" @change="load">
+        <el-select v-model="query.project_id" clearable placeholder="全部项目" style="width:180px" @change="search">
           <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
         </el-select>
-        <el-select v-model="query.status" clearable placeholder="全部状态" style="width:150px" @change="load">
+        <el-select v-model="query.status" clearable placeholder="全部状态" style="width:150px" @change="search">
           <el-option label="已接收" value="received" />
           <el-option label="修复中" value="fixing" />
           <el-option label="已修复" value="fixed" />
@@ -20,14 +20,14 @@
           <el-option label="已忽略" value="ignored" />
           <el-option label="已丢弃" value="dropped" />
         </el-select>
-        <el-select v-model="query.level" clearable placeholder="全部级别" style="width:130px" @change="load">
+        <el-select v-model="query.level" clearable placeholder="全部级别" style="width:130px" @change="search">
           <el-option label="FATAL" value="fatal" />
           <el-option label="ERROR" value="error" />
           <el-option label="WARN" value="warn" />
           <el-option label="INFO" value="info" />
         </el-select>
-        <el-input v-model="query.keyword" placeholder="标题 / 内容关键字" clearable style="width:220px" @keyup.enter="load" />
-        <el-select v-model="query.days" style="width:120px" @change="load">
+        <el-input v-model="query.keyword" placeholder="标题 / 内容关键字" clearable style="width:220px" @keyup.enter="search" @clear="search" />
+        <el-select v-model="query.days" style="width:120px" @change="search">
           <el-option label="近 24 小时" :value="1" />
           <el-option label="近 7 天" :value="7" />
           <el-option label="近 30 天" :value="30" />
@@ -76,7 +76,8 @@
 
       <el-pagination style="margin-top:12px; justify-content:flex-end"
         layout="total, sizes, prev, pager, next" :total="total"
-        v-model:current-page="query.page" v-model:page-size="query.page_size" @change="load" />
+        v-model:current-page="query.page" v-model:page-size="query.page_size"
+        @current-change="load" @size-change="search" />
     </div>
 
     <el-drawer v-model="drawer" title="事件详情" size="60%">
@@ -147,6 +148,12 @@ async function load() {
   } finally { loading.value = false }
 }
 
+// 筛选条件/每页条数变化后必须回到第 1 页，否则停留在旧页码可能拿到空列表
+function search() {
+  query.page = 1
+  return load()
+}
+
 async function openDetail(row) {
   const r = await getEvent(row.id)
   detail.value = r.data || {}
@@ -164,7 +171,8 @@ function replayHint(row) {
 
 async function replay(row) {
   if (!canReplay(row)) return
-  await ElMessageBox.confirm('重放会按同一指纹重新走规则。已修复或修复中的事件不会再开任务。', '提示', { type: 'warning' })
+  const ok = await ElMessageBox.confirm('重放会按同一指纹重新走规则。已修复或修复中的事件不会再开任务。', '提示', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   const r = await replayEvent(row.id)
   ElMessage.success(r.data?.reason || '已重放')
   load()

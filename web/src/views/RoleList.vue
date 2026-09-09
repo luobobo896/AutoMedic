@@ -249,7 +249,8 @@ async function submitCreate() {
 }
 
 async function remove(r) {
-  await ElMessageBox.confirm(`确认删除角色「${r.name}」？`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认删除角色「${r.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteRole(r.id)
   ElMessage.success('已删除')
   current.value = null

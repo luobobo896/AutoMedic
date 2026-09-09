@@ -421,7 +421,8 @@ async function submitProvider() {
 }
 
 async function removeProvider(row) {
-  await ElMessageBox.confirm(`确认删除厂家「${row.name}」？`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认删除厂家「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteProvider(row.id)
   load()
 }
@@ -499,7 +500,8 @@ async function toggleModel(row, v) { await updateModel(row.id, { enabled: v }); 
 async function setDefault(row) { await updateModel(row.id, { is_default: true }); ElMessage.success('已设为默认'); load() }
 
 async function removeModel(row) {
-  await ElMessageBox.confirm(`确认删除模型「${row.name}」？`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认删除模型「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteModel(row.id)
   load()
 }

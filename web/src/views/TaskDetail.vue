@@ -145,7 +145,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getTask, taskLogs, taskPatch, confirmTask, rejectTask, retryTask, cancelTask, taskWSURL } from '@/api'
+import { getTask, taskLogs, taskPatch, confirmTask, rejectTask, retryTask, cancelTask, createTaskWS } from '@/api'
 import { STATUS_META, STAGE_LABEL, LEVEL_META, formatTime, formatDuration, formatTokens, stripANSI, parseJSON, copyText } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -162,6 +162,8 @@ const termRef = ref()
 
 let ws = null
 let timer = null
+let wsRetryTimer = null
+let unmounted = false
 let lastSeq = 0
 let logIndex = new Set()
 
@@ -235,15 +237,20 @@ async function loadAll({ silent } = {}) {
 }
 
 function startWS() {
-  if (ws || ended(task.value.status) || !taskId.value) return
+  if (ws || unmounted || ended(task.value.status) || !taskId.value) return
   try {
-    ws = new WebSocket(taskWSURL(taskId.value))
+    ws = createTaskWS(taskId.value)
+    if (!ws) { wsConnected.value = false; return }
     ws.onopen = () => { wsConnected.value = true }
     ws.onclose = () => {
       wsConnected.value = false
       ws = null
-      if (!ended(task.value.status)) {
-        setTimeout(() => { if (!ws && !ended(task.value.status)) startWS() }, 2000)
+      if (!unmounted && !ended(task.value.status)) {
+        clearTimeout(wsRetryTimer)
+        wsRetryTimer = setTimeout(() => {
+          wsRetryTimer = null
+          if (!ws && !unmounted && !ended(task.value.status)) startWS()
+        }, 2000)
       }
     }
     ws.onerror = () => { wsConnected.value = false }
@@ -264,6 +271,7 @@ function startWS() {
 }
 
 function stopWS() {
+  if (wsRetryTimer) { clearTimeout(wsRetryTimer); wsRetryTimer = null }
   if (ws) { try { ws.close() } catch { /* ignore */ } ws = null }
   wsConnected.value = false
 }
@@ -374,8 +382,8 @@ watch(id, (next, prev) => {
   loadAll()
 })
 
-onMounted(() => { loadAll() })
-onBeforeUnmount(() => { stopPolling(); stopWS() })
+onMounted(() => { unmounted = false; loadAll() })
+onBeforeUnmount(() => { unmounted = true; stopPolling(); stopWS() })
 </script>
 
 <style scoped>

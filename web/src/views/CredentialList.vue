@@ -153,7 +153,8 @@ async function openUsages(row) {
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm(`确认删除凭证「${row.name}」？`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认删除凭证「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteCredential(row.id)
   ElMessage.success('已删除')
   load()

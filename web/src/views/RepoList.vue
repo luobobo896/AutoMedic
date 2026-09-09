@@ -179,7 +179,8 @@ async function testConn(row) {
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm(`确认删除仓库「${row.name}」？`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认删除仓库「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteRepo(row.id)
   ElMessage.success('已删除')
   load()

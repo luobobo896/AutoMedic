@@ -96,7 +96,8 @@ async function submit() {
 }
 
 async function remove(t) {
-  await ElMessageBox.confirm(`确认删除租户「${t.name}」？租户下的用户与角色将一并删除。`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确认删除租户「${t.name}」？租户下的用户与角色将一并删除。`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteTenant(t.id)
   ElMessage.success('已删除')
   load()

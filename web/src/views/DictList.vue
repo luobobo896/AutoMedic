@@ -195,7 +195,8 @@ async function remove(row) {
     ElMessage.warning('请先删除该厂家下的模型标识')
     return
   }
-  await ElMessageBox.confirm(`删除「${row.label || row.value}」？`, '警告', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`删除「${row.label || row.value}」？`, '警告', { type: 'warning' }).catch(() => false)
+  if (!ok) return
   await deleteDict(row.id)
   ElMessage.success('已删除')
   await reload()

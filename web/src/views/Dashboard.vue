@@ -135,7 +135,7 @@ function renderTrend(rows) {
       { name: '已忽略', type: 'bar', stack: 'a', data: rows.map(r => r.ignored), itemStyle: { color: '#5c6478' } },
       { name: '处理中', type: 'bar', stack: 'a', data: rows.map(r => r.pending), itemStyle: { color: '#4f8cff' } }
     ]
-  })
+  }, true)
 }
 
 function renderPie() {
@@ -154,7 +154,7 @@ function renderPie() {
       label: { color: '#8b94a7' },
       color: ['#4f8cff', '#37b24d', '#f59f00', '#f0506e', '#5c6478', '#3b82f6']
     }]
-  })
+  }, true)
 }
 
 function onResize() {

@@ -14,6 +14,7 @@ import TokenList from '@/views/TokenList.vue'
 import Settings from '@/views/Settings.vue'
 import DictList from '@/views/DictList.vue'
 import Login from '@/views/Login.vue'
+import Forbidden from '@/views/Forbidden.vue'
 import UserList from '@/views/UserList.vue'
 import RoleList from '@/views/RoleList.vue'
 import TenantList from '@/views/TenantList.vue'
@@ -22,6 +23,7 @@ import { useAuth } from '@/store/auth'
 
 const routes = [
   { path: '/login', name: 'login', component: Login, meta: { hidden: true, public: true } },
+  { path: '/403', name: 'forbidden', component: Forbidden, meta: { hidden: true } },
   { path: '/', name: 'dashboard', component: Dashboard, meta: { title: '概览', icon: 'DataLine', perm: 'overview:read' } },
   { path: '/projects', name: 'projects', component: ProjectList, meta: { title: '项目管理', icon: 'Folder', perm: 'project:read' } },
   { path: '/projects/:id', name: 'project-detail', component: ProjectDetail, meta: { title: '项目详情', hidden: true, perm: 'project:read' } },
@@ -47,16 +49,29 @@ const router = createRouter({
   scrollBehavior: () => ({ top: 0 })
 })
 
+// 当前用户第一个有权限的落地路由；一个都没有则返回 '/403'
+// 不能固定回退到 '/'（它自身要求 overview:read），否则会触发无限重定向
+function landingPath() {
+  const { can } = useAuth()
+  const hit = routes.find((r) => {
+    if (r.path === '/login' || r.path === '/403') return false
+    if (r.path.includes(':')) return false
+    return !r.meta?.perm || can(r.meta.perm)
+  })
+  return hit ? hit.path : '/403'
+}
+
 router.beforeEach((to) => {
   const { can } = useAuth()
   if (!to.meta?.public && !getToken()) {
     return { path: '/login', query: to.path === '/' ? {} : { redirect: to.fullPath } }
   }
   if (to.path === '/login' && getToken()) {
-    return { path: '/' }
+    return { path: landingPath() }
   }
   if (to.meta?.perm && !can(to.meta.perm)) {
-    return { path: '/' }
+    const target = landingPath()
+    return { path: target === to.path ? '/403' : target }
   }
   return true
 })
@@ -66,7 +81,5 @@ export function visibleMenus() {
   const { can } = useAuth()
   return routes.filter((r) => !r.meta?.hidden && (!r.meta?.perm || can(r.meta.perm)))
 }
-
-export const menus = routes.filter((r) => !r.meta?.hidden)
 
 export default router
