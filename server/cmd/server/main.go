@@ -35,7 +35,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
 		os.Exit(1)
 	}
-	logging.Init(cfg.Log.Level, cfg.Log.Format)
+	logging.Init(cfg.Log.Level, cfg.Log.Format, cfg.Log.Dir, cfg.Log.Retain)
 
 	key, err := cfg.ResolveSecretKey()
 	if err != nil {

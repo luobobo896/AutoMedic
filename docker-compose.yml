@@ -2,6 +2,12 @@
 # AutoMedic — 事件驱动的 dsh 全自动/半自动 Bug 修复平台
 # 快速启动：docker compose up -d
 # 访问：http://localhost:8080
+#
+# ⚠️ 生产可复现性：请用语义版本 tag 固定镜像与 dsh 版本，例如：
+#    export AUTOMEDIC_IMAGE_TAG=1.2.3
+#    export DSH_VERSION=0.1.2-rc.1
+#    docker compose build && docker compose up -d
+# 未指定时默认 latest（上游发稳定版前不可写死，但 latest 不保证可复现）。
 # ============================================================
 
 services:
@@ -28,8 +34,8 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        DSH_VERSION: latest
-    image: automedic/automedic:latest
+        DSH_VERSION: ${DSH_VERSION:-latest}
+    image: automedic/automedic:${AUTOMEDIC_IMAGE_TAG:-latest}
     container_name: automedic
     restart: unless-stopped
     ports:
@@ -37,6 +43,10 @@ services:
     environment:
       AUTOMEDIC_SERVER_ADMIN_TOKEN: ${AUTOMEDIC_ADMIN_TOKEN:-change-me}
       AUTOMEDIC_SECURITY_SECRET_KEY: ${AUTOMEDIC_SECRET_KEY:-}
+      # 后端已支持的 JWT 签名密钥注入；空值则回退 security.secret_key
+      AUTOMEDIC_AUTH_JWT_SECRET: ${AUTOMEDIC_JWT_SECRET:-}
+      # 反向代理（Nginx 等）网关节点 IP；空值=不信任任何代理，ClientIP 取 TCP 对端
+      AUTOMEDIC_SERVER_TRUSTED_PROXIES: ${AUTOMEDIC_TRUSTED_PROXIES:-}
       AUTOMEDIC_SERVER_MODE: release
       AUTOMEDIC_DB_DRIVER: postgres
       AUTOMEDIC_DB_DSN: host=postgres user=automedic password=${AUTOMEDIC_DB_PASSWORD:-automedic} dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai

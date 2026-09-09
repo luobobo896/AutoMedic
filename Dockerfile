@@ -53,7 +53,12 @@ COPY --from=webbuild    /src/web/dist          /app/web/dist
 COPY server/configs/config.docker.yaml        /app/configs/config.yaml
 COPY server/migrations                        /app/migrations
 
-RUN mkdir -p /app/data/workspaces /app/data/logs
+# 以非 root 用户运行：创建 appuser，确保 /app（含数据卷、启动脚本、二进制）归其所有。
+# 顺序要求：useradd/chown 必须在 COPY 之后、VOLUME 之前；apt-get install 已在上方（切换 USER 前）完成。
+RUN useradd -m -u 10001 -s /usr/sbin/nologin appuser \
+    && mkdir -p /app/data/workspaces /app/data/logs \
+    && chown -R appuser:appuser /app
+USER appuser
 VOLUME ["/app/data"]
 
 EXPOSE 8080

@@ -10,6 +10,10 @@ server:
   admin_token: ""             # 管理 API 令牌；强烈建议用 AUTOMEDIC_SERVER_ADMIN_TOKEN 注入
   read_timeout: 60            # 秒
   write_timeout: 300
+  # 允许跨域的前端源，如 ["https://automedic.example.com"]；留空 = 不开放跨域（同源部署，推荐）
+  allow_origins: []
+  # 可信反向代理 IP/CIDR；留空 = 不信任任何代理。经 Nginx 反代时必须填网关地址
+  trusted_proxies: []
 
 db:
   driver: "postgres"

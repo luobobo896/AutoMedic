@@ -1,6 +1,18 @@
+# ============================================================
+# ⚠️ 警告：本文件仅为「开发模板」，禁止填入任何真实值（数据库口令、JWT 密钥、
+#    加密主密钥、admin 口令等）。生产环境一律用 AUTOMEDIC_ 前缀环境变量注入，
+#    或在 git 忽略的 config.local.yaml 中覆盖。
+#    仓库内此文件曾提交过真实生产口令，已泄露，生产库口令必须轮换、git 历史必须清理。
+# ============================================================
 server:
   addr: ":8080"
   mode: "debug"
+  # 允许跨域的前端源（CORS），如 ["https://automedic.example.com"]。
+  # 留空 = 不开放跨域（前后端同源部署，推荐）；一旦配置，将同时允许携带凭据。
+  allow_origins: []
+  # 可信反向代理 IP/CIDR；留空表示不信任任何代理，ClientIP 取 TCP 对端地址。
+  # 经 Nginx 等反代部署时必须填网关地址，否则采集令牌的 IP 白名单会失效。
+  trusted_proxies: []
   # 前端构建产物目录；留空则不托管静态资源（开发模式下由 vite dev server 提供前端）
   web_dir: "../web/dist"
   # 管理 API 已改为账号密码登录（Bearer JWT），此令牌仅作为遗留开关保留
@@ -10,30 +22,32 @@ server:
 
 db:
   driver: "postgres"
-  dsn: "host=new.hsddns.com user=admin password=aircen123 dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai"
+  # 占位值，生产用 AUTOMEDIC_DB_DSN 注入；切勿填入真实主机/口令
+  dsn: "host=CHANGE_ME user=CHANGE_ME password=CHANGE_ME dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai"
   max_open: 50
   max_idle: 10
   log_level: "warn"
 
 auth:
-  # 账号密码登录：JWT 签名密钥（生产环境请换成随机串并通过环境变量注入）
-  jwt_secret: "automedic-jwt-secret-change-me-32b"
+  # 账号密码登录：JWT 签名密钥（生产环境请换成随机串并通过 AUTOMEDIC_AUTH_JWT_SECRET 注入）
+  jwt_secret: "CHANGE_ME_USE_AUTOMEDIC_AUTH_JWT_SECRET"
   access_token_ttl: 480    # 访问令牌有效期（分钟）
   refresh_token_ttl: 1440  # 刷新令牌有效期（分钟）
   bootstrap_admin:
     username: "admin"
-    password: "admin123"
+    # 占位值，生产用 AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD 注入；首次登录后立即修改
+    password: "CHANGE_ME"
     tenant_name: "默认租户"
     tenant_key: "default"
 
 security:
   # 敏感字段（git 凭证、厂家 API Key）加密主密钥，至少 32 字节
-  # 生产环境请通过环境变量 AUTOMEDIC_SECURITY_SECRET_KEY 注入
-  secret_key: "automedic-default-secret-key-please-change"
+  # 生产环境请通过 AUTOMEDIC_SECURITY_SECRET_KEY 注入（务必 ≥32 字节）
+  secret_key: "CHANGE_ME_USE_AUTOMEDIC_SECURITY_SECRET_KEY"
 
 dsh:
-  # DeepSeek Harness 可执行文件路径（绝对路径更稳妥）
-  bin: "/Users/hanson/.local/share/fnm/node-versions/v25.9.0/installation/bin/dsh"
+  # DeepSeek Harness 可执行文件路径；依赖 PATH 查找，留空即 "dsh"
+  bin: "dsh"
   home: ""
   # 命令模板：headless profile 只接受一个 task 文本参数，
   # 模型与上下文通过 --patch 注入（见 patch_template）
@@ -47,7 +61,8 @@ dsh:
   # 传给 dsh 进程的额外环境变量（dsh 依赖 node，需保证 PATH 中 node 可用）
   env:
     - "DSH_TELEMETRY_MODE=DISABLED"
-    - "PATH=/Users/hanson/.local/share/fnm/node-versions/v25.9.0/installation/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    # 通用 PATH，覆盖 docker 容器内默认即可；本地若用 fnm/nvm 管理 node，请改为对应 node bin 目录
+    - "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 ocr:
   # Open Code Review CLI（npm i -g @alibaba-group/open-code-review），仓库「审查」按钮调用

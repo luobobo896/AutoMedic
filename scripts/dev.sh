@@ -14,7 +14,13 @@ MODE="${1:-all}"
 start_back() {
   echo "==> 启动后端 :8080"
   (cd server && mkdir -p bin && go build -o bin/automedic-server ./cmd/server)
-  (cd server && ./bin/automedic-server -config configs/config.yaml)
+  # 优先使用本地私密配置（git 忽略）；不存在则退回开发模板 config.yaml
+  local cfg="configs/config.yaml"
+  if [ -f server/configs/config.local.yaml ]; then
+    cfg="configs/config.local.yaml"
+    echo "==> 使用本地配置: server/configs/config.local.yaml"
+  fi
+  (cd server && ./bin/automedic-server -config "$cfg")
 }
 
 start_web() {
