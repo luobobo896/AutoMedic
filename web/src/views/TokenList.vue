@@ -2,34 +2,48 @@
   <div class="am-page">
     <div class="am-card">
       <div class="am-toolbar">
-        <span style="font-weight:600">项目令牌</span>
-        <span class="am-text-dim" style="font-size:12px">供外部标准日志采集器投递事件使用，所有投递接口强制校验令牌</span>
+        <el-button type="primary" :icon="'Plus'" @click="openCreate">创建令牌</el-button>
         <div class="am-flex-1" />
-        <el-button type="primary" :icon="'Plus'" @click="dialog = true">创建令牌</el-button>
+        <el-button :icon="'Refresh'" aria-label="刷新" @click="load" />
+      </div>
+      <div class="am-field-help" style="margin:-4px 0 12px">
+        采集器用请求头 <span class="am-mono">X-AM-Token</span> 投递事件。明文只显示一次。
       </div>
 
-      <el-table :data="list" v-loading="loading" size="small">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="name" label="名称" width="180" />
-        <el-table-column label="项目" width="160">
+      <el-table :data="list" v-loading="loading" size="small" style="width:100%">
+        <template #empty>
+          <div class="am-empty">
+            <div class="am-empty__title">还没有投递令牌</div>
+            <div class="am-empty__desc">告警源带着令牌 POST 进来，平台才知道事件属于哪个项目。</div>
+            <div class="am-empty__actions">
+              <el-button type="primary" :icon="'Plus'" @click="openCreate">创建第一个令牌</el-button>
+            </div>
+          </div>
+        </template>
+        <el-table-column prop="name" label="名称" min-width="160" />
+        <el-table-column label="项目" min-width="140">
           <template #default="{ row }">{{ row.project?.name || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="prefix" label="令牌前缀" width="150" />
+        <el-table-column prop="prefix" label="前缀" min-width="140">
+          <template #default="{ row }"><span class="am-mono">{{ row.prefix || '-' }}</span></template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="IP 白名单" min-width="160">
+        <el-table-column label="IP 白名单" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.allow_cidr || '不限制' }}</template>
         </el-table-column>
         <el-table-column label="有效期" width="170">
           <template #default="{ row }">{{ row.expires_at ? formatTime(row.expires_at) : '永久' }}</template>
         </el-table-column>
         <el-table-column label="最近使用" width="170">
-          <template #default="{ row }">{{ formatTime(row.last_used_at) }}</template>
+          <template #default="{ row }">
+            <span :class="{ 'am-text-dim': !row.last_used_at }">{{ row.last_used_at ? formatTime(row.last_used_at) : '从未使用' }}</span>
+          </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="showCurl(row)">接入示例</el-button>
             <el-button link type="primary" @click="toggle(row)">{{ row.enabled ? '禁用' : '启用' }}</el-button>
@@ -44,41 +58,19 @@
         @current-change="load" @size-change="search" />
     </div>
 
-    <div class="am-card">
-      <div class="am-toolbar"><span style="font-weight:600">投递协议</span></div>
-      <div class="am-diff">
-        POST /api/v1/ingest/events
-        Header: X-AM-Token: &lt;令牌&gt;   （也支持 Authorization: Bearer &lt;令牌&gt;）
-
-        {
-          "source": "sentry",                 // 来源：sentry | loki | k8s | custom ...
-          "level": "fatal",                   // fatal | error | warn | info
-          "title": "panic: nil pointer ...",  // 必填（title 与 message 不能同时为空）
-          "message": "order service panic",
-          "stack": "panic: ...\n at service.go:128",
-          "fingerprint": "order-nil-ctx-001", // 可选，用于去重与冷却；留空由系统生成
-          "repo_hint": "shop-api",            // 可选，辅助定位仓库
-          "occurred_at": "2026-09-03T17:00:00+08:00",
-          "payload": { "env": "prod" }        // 任意原始负载
-        }
-
-        响应：{ "code":0, "data": { "action": "fix|ignore|dropped", "task_ids": [1], "reason": "..." } }
-        批量投递：POST /api/v1/ingest/events/batch   { "events": [ ... ] }
-
-        Sentry / Loki / Promtail 不能原样转发，需映射字段。完整示例与可选 sidecar 见仓库 docs/采集接入.md。
-      </div>
-    </div>
-
-    <el-dialog v-model="dialog" title="创建项目令牌" width="520">
+    <el-dialog v-model="dialog" title="创建项目令牌" class="am-dialog-form" width="520">
       <el-form :model="form" label-width="110px">
         <el-form-item label="所属项目" required>
           <el-select v-model="form.project_id" style="width:100%">
             <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="名称" required><el-input v-model="form.name" placeholder="如：loki-collector" /></el-form-item>
+        <el-form-item label="名称" required>
+          <el-input v-model="form.name" placeholder="如：loki-collector" />
+        </el-form-item>
         <el-form-item label="IP 白名单">
           <el-input v-model="form.allow_cidr" placeholder="逗号分隔 CIDR，留空不限制" />
+          <div class="am-field-help">只允许这些网段投递；留空则不限制来源 IP。</div>
         </el-form-item>
         <el-form-item label="有效期">
           <el-date-picker v-model="form.expires_at" type="datetime" placeholder="留空为永久" style="width:100%" />
@@ -117,6 +109,11 @@ const curlText = ref('')
 const plainTokens = ref({})
 const form = ref({})
 const query = reactive({ page: 1, page_size: 20 })
+
+function openCreate() {
+  form.value = { project_id: null, name: '', allow_cidr: '', expires_at: null }
+  dialog.value = true
+}
 
 async function load() {
   loading.value = true

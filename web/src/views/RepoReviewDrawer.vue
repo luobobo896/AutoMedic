@@ -1,103 +1,148 @@
 <template>
-  <el-drawer v-model="visible" :title="title" size="72%" destroy-on-close>
-    <div class="review-layout">
-      <el-form :model="form" label-width="88px" size="small">
-        <el-form-item label="范围">
-          <el-radio-group v-model="form.mode">
-            <el-radio value="scan">扫描已合入代码</el-radio>
-            <el-radio value="review">相对基线的 diff</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item v-if="form.mode === 'review'" label="基线 from">
-          <el-select v-model="form.from" filterable allow-create default-first-option style="width:220px">
-            <el-option v-for="b in fromOptions" :key="b" :label="b" :value="b" />
-          </el-select>
-          <span class="am-text-dim" style="margin-left:8px">对比当前分支 {{ repo?.branch || 'HEAD' }}（基线不能与当前分支相同）</span>
-        </el-form-item>
-        <el-form-item v-if="form.mode === 'scan'" label="路径">
-          <el-select v-model="form.path" filterable allow-create default-first-option style="width:280px" placeholder="选择或输入路径">
-            <el-option v-for="p in pathOptions" :key="p" :label="p" :value="p" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="starting" :disabled="running" @click="start">开始审查</el-button>
-          <span v-if="job" class="am-text-dim" style="margin-left:12px">
-            审查 #{{ job.id }} · {{ statusText }}
-            <template v-if="elapsedText"> · 已用 {{ elapsedText }}</template>
-            <template v-if="job.finding_n != null && job.status === 'success'"> · {{ job.finding_n }} 条意见</template>
-          </span>
-        </el-form-item>
-      </el-form>
-      <div class="review-history">
-        <div class="review-history-head">审查记录</div>
-        <div v-if="historyLoading" class="am-text-dim" style="font-size:12px">正在读取上次结果…</div>
-        <div v-else-if="!history.length" class="am-text-dim" style="font-size:12px">还没有审查记录。开始一次后，关掉抽屉再打开仍能看到上次结果。</div>
-        <ul v-else class="review-history-list">
-          <li v-for="h in history" :key="h.id">
-            <button type="button" class="review-history-item" :class="{ current: job?.id === h.id }" @click="openHistory(h)">
-              <span class="review-history-id">#{{ h.id }}</span>
-              <el-tag size="small" :type="statusType(h.status)">{{ statusLabel(h.status) }}</el-tag>
-              <span class="am-text-dim">{{ historySummary(h) }}</span>
-            </button>
-          </li>
-        </ul>
-      </div>
-      <div class="am-text-dim" style="font-size:12px;margin-bottom:8px">
-        调用官方 Open Code Review CLI（`ocr`），不改代码。已合入主干的预埋问题请用「扫描已合入代码」；「相对基线的 diff」只审未合入当前分支的改动。模型与密钥来自「大模型配置中心」。
-      </div>
-      <div v-if="job && (running || job.progress || logLines.length)" class="review-progress" role="status" aria-live="polite">
-        <div class="review-progress-now">{{ job.progress || (running ? '审查进行中…' : '') }}</div>
-        <div v-if="running" class="am-text-dim" style="font-size:12px;margin-top:4px">
-          路径扫描会逐文件调模型，单文件可能要一两分钟，不是卡死。超时 {{ timeoutHint }}。
-        </div>
-        <ol v-if="logLines.length" class="review-log">
-          <li v-for="(line, i) in logLines" :key="i">{{ line }}</li>
-        </ol>
-      </div>
-      <el-alert v-if="job?.status === 'failed'" type="error" :closable="false" :title="failTitle" style="margin-bottom:12px" />
-      <el-alert v-else-if="job?.status === 'success' && !findings.length" type="info" :closable="false" title="审查完成，但没有意见。若代码里已有预埋问题，请改用「扫描已合入代码」，不要用与当前分支相同的基线做 diff。" style="margin-bottom:12px" />
-      <div v-if="running && !findings.length" class="am-text-dim" style="font-size:12px;margin-bottom:8px">意见会在审查结束后列出，过程见上方日志。</div>
-      <el-table :data="findings" size="small" @selection-change="onSel">
-        <el-table-column type="selection" width="42" />
-        <el-table-column prop="severity" label="级别" width="80">
-          <template #default="{ row }">
-            <el-tag size="small" :type="sevType(row.severity)">{{ row.severity || '-' }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="path" label="位置" min-width="160">
-          <template #default="{ row }">{{ loc(row) }}</template>
-        </el-table-column>
-        <el-table-column prop="rule" label="规则" width="100" show-overflow-tooltip />
-        <el-table-column prop="title" label="摘要" min-width="220" show-overflow-tooltip />
-        <el-table-column label="" width="72" align="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <div v-if="selected.length" class="am-toolbar" style="margin-top:12px">
-        <el-button type="primary" :loading="fixing" @click="fixSelected">用平台修复（{{ selected.length }}）</el-button>
-        <span class="am-text-dim" style="font-size:12px">始终半自动：dsh 产出补丁后需人工确认再推送</span>
-      </div>
-      <div v-if="createdIds.length" class="am-text-dim" style="margin-top:8px;font-size:12px">
-        已创建任务
-        <el-button v-for="tid in createdIds" :key="tid" link type="primary" @click="$router.push(`/tasks/${tid}`)">#{{ tid }}</el-button>
+  <el-drawer v-model="visible" :title="title" size="86%" destroy-on-close class="review-drawer">
+    <div class="rv">
+      <header class="rv-bar">
+        <el-radio-group v-model="form.mode" class="am-seg" aria-label="审查范围">
+          <el-radio-button value="scan">扫描已合入代码</el-radio-button>
+          <el-radio-button value="review">相对基线的 diff</el-radio-button>
+        </el-radio-group>
+        <el-select
+          v-if="form.mode === 'scan'"
+          v-model="form.path"
+          filterable
+          allow-create
+          default-first-option
+          class="rv-bar__field"
+          placeholder="路径，留空则扫整个仓库"
+        >
+          <el-option v-for="p in pathOptions" :key="p" :label="p" :value="p" />
+        </el-select>
+        <el-select
+          v-else
+          v-model="form.from"
+          filterable
+          allow-create
+          default-first-option
+          class="rv-bar__field"
+          placeholder="基线分支"
+        >
+          <el-option v-for="b in fromOptions" :key="b" :label="b" :value="b" />
+        </el-select>
+        <el-button type="primary" :loading="starting" :disabled="running" @click="start">开始审查</el-button>
+      </header>
+      <p class="rv-hint">
+        <template v-if="form.mode === 'scan'">扫已合入代码里的预埋问题。不改仓库。</template>
+        <template v-else>只审相对 {{ repo?.branch || 'HEAD' }} 的未合入改动，基线不能与当前分支相同。</template>
+      </p>
+
+      <div class="rv-shell">
+        <aside class="rv-rail" aria-label="审查记录">
+          <div class="rv-rail__head">记录</div>
+          <div v-if="historyLoading" class="rv-muted">正在读取…</div>
+          <div v-else-if="!history.length" class="rv-muted">还没有记录。跑完一次后关掉再开仍能看到。</div>
+          <ul v-else class="rv-rail__list">
+            <li v-for="h in history" :key="h.id">
+              <button
+                type="button"
+                class="rv-hist"
+                :class="{ 'is-current': job?.id === h.id }"
+                @click="openHistory(h)"
+              >
+                <span class="rv-hist__row">
+                  <span class="am-mono">#{{ h.id }}</span>
+                  <span class="rv-dot" :class="'is-' + (h.status || 'info')" :title="statusLabel(h.status)" />
+                  <span class="rv-hist__status">{{ statusLabel(h.status) }}</span>
+                </span>
+                <span class="rv-hist__sum">{{ historyLead(h) }}</span>
+                <span class="rv-hist__time">{{ historyWhen(h) }}</span>
+              </button>
+            </li>
+          </ul>
+        </aside>
+
+        <section class="rv-main" aria-label="审查结果">
+          <div v-if="job" class="rv-status" role="status" aria-live="polite">
+            <span class="rv-status__label">{{ statusText || '—' }}</span>
+            <span v-if="elapsedText" class="rv-muted">{{ elapsedText }}</span>
+            <span v-if="job.status === 'success'" class="rv-status__count">{{ findings.length }} 条意见</span>
+            <span v-if="running" class="rv-muted">单文件可能要一两分钟，超时 {{ timeoutHint }}</span>
+          </div>
+
+          <div v-if="running && (job.progress || logLines.length)" class="rv-live">
+            <div class="rv-live__now">{{ job.progress || '审查进行中…' }}</div>
+            <ol v-if="logLines.length" class="rv-log">
+              <li v-for="(line, i) in logLines" :key="i">{{ line }}</li>
+            </ol>
+          </div>
+
+          <div v-if="job?.status === 'failed'" class="rv-banner is-fail">{{ failTitle }}</div>
+          <div v-else-if="job?.status === 'success' && !findings.length" class="rv-banner is-ok">
+            没有意见。主干上的预埋问题请改用「扫描已合入代码」。
+          </div>
+          <div v-else-if="!job && !historyLoading" class="am-empty">
+            <div class="am-empty__title">还没有这次审查</div>
+            <div class="am-empty__desc">选范围后点「开始审查」。意见会列在这里，点一行看全文。</div>
+          </div>
+          <div v-else-if="running && !findings.length" class="rv-muted rv-wait">意见会在结束后列出。</div>
+
+          <div v-if="findings.length" class="rv-split" :class="{ 'is-open': detailOpen && detail }">
+            <div class="rv-list" role="list">
+              <div
+                v-for="row in findings"
+                :key="findingKey(row)"
+                class="rv-item"
+                :class="{ 'is-open': findingKey(detail) === findingKey(row) && detailOpen }"
+                role="listitem"
+              >
+                <el-checkbox
+                  :model-value="isSelected(row)"
+                  class="rv-item__check"
+                  @click.stop
+                  @change="(on) => toggleOne(row, on)"
+                />
+                <button type="button" class="rv-item__hit" @click="openDetail(row)">
+                  <span class="rv-item__body">
+                    <span class="rv-item__title">
+                      <span class="rv-item__sev" :class="'is-' + sevTone(row.severity)">{{ sevLabel(row.severity) }}</span>
+                      {{ row.title || '未命名意见' }}
+                    </span>
+                    <span class="rv-item__meta">
+                      <span class="am-mono">{{ loc(row) }}</span>
+                      <span v-if="row.rule" class="rv-item__rule">{{ row.rule }}</span>
+                    </span>
+                  </span>
+                </button>
+              </div>
+            </div>
+            <article v-if="detailOpen && detail" class="rv-detail" aria-label="意见全文">
+              <div class="rv-detail__head">
+                <span class="rv-item__sev" :class="'is-' + sevTone(detail.severity)">{{ sevLabel(detail.severity) }}</span>
+                <span v-if="detail.rule" class="rv-item__rule">{{ detail.rule }}</span>
+                <span class="am-mono">{{ loc(detail) }}</span>
+              </div>
+              <h4 class="rv-detail__title">{{ detail.title }}</h4>
+              <div class="rv-detail__body">{{ detail.body || detail.title }}</div>
+            </article>
+          </div>
+
+          <footer v-if="findings.length" class="rv-foot">
+            <el-checkbox
+              :model-value="allSelected"
+              :indeterminate="someSelected"
+              @change="toggleAll"
+            >全选 {{ selected.length }}/{{ findings.length }}</el-checkbox>
+            <el-button type="primary" :loading="fixing" :disabled="!selected.length" @click="fixSelected">
+              用平台修复
+            </el-button>
+            <span class="rv-hint">始终半自动，补丁需人工确认再推送。</span>
+            <span v-if="createdIds.length" class="rv-tasks">
+              已创建
+              <el-button v-for="tid in createdIds" :key="tid" link type="primary" @click="$router.push(`/tasks/${tid}`)">#{{ tid }}</el-button>
+            </span>
+          </footer>
+        </section>
       </div>
     </div>
-    <el-dialog v-model="detailOpen" title="审查意见" width="560px" append-to-body>
-      <template v-if="detail">
-        <div class="detail-meta">
-          <el-tag size="small" :type="sevType(detail.severity)">{{ detail.severity || '-' }}</el-tag>
-          <span v-if="detail.rule" class="am-pill">{{ detail.rule }}</span>
-          <span class="am-mono">{{ loc(detail) }}</span>
-        </div>
-        <p class="detail-title">{{ detail.title }}</p>
-        <div class="detail-body">{{ detail.body || detail.title }}</div>
-      </template>
-      <template #footer>
-        <el-button @click="detailOpen = false">关闭</el-button>
-      </template>
-    </el-dialog>
   </el-drawer>
 </template>
 
@@ -192,17 +237,42 @@ function loc(row) {
   if (!row?.path) return '-'
   return row.line ? `${row.path}:${row.line}` : row.path
 }
-function sevType(s) {
-  if (s === 'critical' || s === 'high') return 'danger'
-  if (s === 'medium') return 'warning'
-  return 'info'
+function sevTone(s) {
+  if (s === 'critical' || s === 'high') return 'high'
+  if (s === 'medium') return 'mid'
+  return 'low'
 }
-function onSel(rows) {
-  selected.value = rows || []
+function sevLabel(s) {
+  return s || 'info'
+}
+function findingKey(row) {
+  if (!row) return ''
+  return row.key || `${row.path || ''}:${row.line || 0}:${row.title || ''}`
 }
 function openDetail(row) {
+  if (findingKey(detail.value) === findingKey(row) && detailOpen.value) {
+    detailOpen.value = false
+    return
+  }
   detail.value = row
   detailOpen.value = true
+}
+const allSelected = computed(() => findings.value.length > 0 && selected.value.length === findings.value.length)
+const someSelected = computed(() => selected.value.length > 0 && !allSelected.value)
+function isSelected(row) {
+  const k = findingKey(row)
+  return selected.value.some((x) => findingKey(x) === k)
+}
+function toggleOne(row, on) {
+  const k = findingKey(row)
+  if (on) {
+    if (!isSelected(row)) selected.value = [...selected.value, row]
+    return
+  }
+  selected.value = selected.value.filter((x) => findingKey(x) !== k)
+}
+function toggleAll(on) {
+  selected.value = on ? [...findings.value] : []
 }
 function isToolNoise(line) {
   const s = String(line || '').replace(/^\[ocr\]\s*/, '').trim()
@@ -226,19 +296,14 @@ function defaultFrom(branch) {
 function statusLabel(s) {
   return ({ pending: '排队', running: '审查中', success: '完成', failed: '失败' })[s] || s || '-'
 }
-function statusType(s) {
-  if (s === 'success') return 'success'
-  if (s === 'failed') return 'danger'
-  if (s === 'running' || s === 'pending') return 'warning'
-  return 'info'
+function historyLead(h) {
+  if (h.status === 'success') return `${h.finding_n || 0} 条 · ${h.mode === 'scan' ? (h.path || '扫描') : `${h.from_ref || '-'} → ${h.to_ref || '-'}`}`
+  if (h.status === 'failed' && h.error_msg) return humanFail(h.error_msg)
+  return h.mode === 'scan' ? (h.path || '扫描') : `${h.from_ref || '-'} → ${h.to_ref || '-'}`
 }
-function historySummary(h) {
-  const bits = []
-  bits.push(h.mode === 'scan' ? (h.path || '扫描') : `${h.from_ref || '-'} → ${h.to_ref || '-'}`)
-  if (h.status === 'success') bits.push(`${h.finding_n || 0} 条意见`)
-  if (h.status === 'failed' && h.error_msg) bits.push(humanFail(h.error_msg))
-  if (h.created_at) bits.push(String(h.created_at).replace('T', ' ').slice(0, 19))
-  return bits.join(' · ')
+function historyWhen(h) {
+  if (!h.created_at) return ''
+  return String(h.created_at).replace('T', ' ').slice(0, 16)
 }
 
 function applyJob(next) {
@@ -262,6 +327,10 @@ async function loadHistory(selectLatest) {
 
 function openHistory(row) {
   if (!row?.id) return
+  selected.value = []
+  createdIds.value = []
+  detail.value = null
+  detailOpen.value = false
   applyJob(row)
   if (row.mode === 'scan') {
     form.value.mode = 'scan'
@@ -285,6 +354,8 @@ async function start() {
   starting.value = true
   createdIds.value = []
   selected.value = []
+  detail.value = null
+  detailOpen.value = false
   try {
     const body = { mode: form.value.mode }
     if (form.value.mode === 'review') body.from = form.value.from
@@ -344,75 +415,280 @@ onUnmounted(stopPoll)
 </script>
 
 <style scoped>
-.review-layout {
-  min-height: 280px;
+.rv {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
 }
-.review-history {
-  margin: 0 0 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--am-border);
-  border-radius: 10px;
-  background: var(--am-bg-elevated);
-}
-.review-history-head {
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.review-history-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 148px;
-  overflow-y: auto;
-}
-.review-history-item {
+.rv-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+.rv-bar__field { width: 220px; max-width: 100%; }
+.rv-hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--am-text-dim);
+  max-width: 72ch;
+}
+.rv-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+  flex: 1;
+  min-height: 360px;
+}
+.rv-rail {
+  border-right: 1px solid var(--am-border);
+  padding-right: 12px;
+  min-width: 0;
+}
+.rv-rail__head {
+  font-size: 12px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--am-text-dim);
+  margin-bottom: 8px;
+}
+.rv-rail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  max-height: calc(100vh - 220px);
+}
+.rv-hist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: 100%;
   text-align: left;
+  padding: 10px 8px;
+  margin: 0 0 2px;
+  border: 0;
+  border-radius: var(--am-radius-sm);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 8px;
   color: var(--am-text);
-  padding: 6px 8px;
-  cursor: pointer;
   font: inherit;
+  cursor: pointer;
+  transition: background-color var(--am-duration) ease;
 }
-.review-history-item:hover,
-.review-history-item.current {
-  border-color: var(--am-border);
-  background: var(--am-bg-inset);
+.rv-hist:hover { background: var(--am-bg-inset); }
+.rv-hist.is-current { background: var(--am-primary-soft); }
+.rv-hist:focus-visible {
+  outline: 2px solid var(--am-primary);
+  outline-offset: 2px;
 }
-.review-history-id {
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12px;
+.rv-hist__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.review-progress {
-  border: 1px solid var(--am-border);
-  background: var(--am-bg-inset);
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 12px;
-}
-.review-progress-now {
+.rv-hist__status { font-size: 12px; color: var(--am-text-dim); }
+.rv-hist__sum {
+  font-size: 12.5px;
+  line-height: 1.45;
   color: var(--am-text);
-  font-size: 13px;
-  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.review-log {
-  margin: 10px 0 0;
+.rv-hist__time { font-size: 11px; color: var(--am-text-dim); }
+.rv-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--am-text-dim);
+  flex: 0 0 auto;
+}
+.rv-dot.is-success { background: var(--am-success); }
+.rv-dot.is-failed { background: var(--am-danger); }
+.rv-dot.is-running,
+.rv-dot.is-pending { background: var(--am-warning); }
+.rv-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.rv-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+.rv-status__label {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  text-wrap: pretty;
+}
+.rv-status__count { font-size: 13px; color: var(--am-text); }
+.rv-muted { color: var(--am-text-dim); font-size: 12.5px; line-height: 1.6; }
+.rv-wait { padding: 8px 0; }
+.rv-live {
+  background: var(--am-bg-inset);
+  border: 1px solid var(--am-border);
+  border-radius: var(--am-radius-sm);
+  padding: 12px 14px;
+}
+.rv-live__now { font-size: 13px; font-weight: 500; }
+.rv-log {
+  margin: 8px 0 0;
   padding-left: 18px;
-  max-height: 180px;
+  max-height: 120px;
   overflow-y: auto;
   color: var(--am-text-dim);
   font-size: 12px;
   line-height: 1.6;
 }
-.review-log li + li { margin-top: 2px; }
-.detail-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; color: var(--am-text-dim); font-size: 12px; }
-.detail-title { margin: 0 0 10px; font-weight: 600; color: var(--am-text); }
-.detail-body { white-space: pre-wrap; color: var(--am-text); font-size: 13px; line-height: 1.65; }
+.rv-banner {
+  padding: 10px 12px;
+  border-radius: var(--am-radius-sm);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.rv-banner.is-fail {
+  background: color-mix(in srgb, var(--am-danger) 14%, transparent);
+  color: var(--am-text);
+}
+.rv-banner.is-ok {
+  background: var(--am-bg-inset);
+  color: var(--am-text-dim);
+}
+.rv-split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  border: 1px solid var(--am-border);
+  border-radius: var(--am-radius);
+  overflow: hidden;
+  min-height: 280px;
+  background: var(--am-bg);
+}
+.rv-split.is-open {
+  grid-template-columns: minmax(280px, 1fr) minmax(0, 1.1fr);
+}
+.rv-list { overflow-y: auto; max-height: calc(100vh - 280px); }
+.rv-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 4px;
+  align-items: start;
+  border-bottom: 1px solid var(--am-border);
+  background: transparent;
+  transition: background-color var(--am-duration) ease;
+}
+.rv-item:hover,
+.rv-item.is-open { background: var(--am-bg-inset); }
+.rv-item__check { margin: 12px 0 0 10px; }
+.rv-item__hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px 12px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--am-text);
+  font: inherit;
+  cursor: pointer;
+}
+.rv-item__hit:focus-visible {
+  outline: 2px solid var(--am-primary);
+  outline-offset: -2px;
+}
+.rv-item__sev {
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--am-text-dim);
+  margin-right: 8px;
+}
+.rv-item__sev.is-high { color: var(--am-danger); }
+.rv-item__sev.is-mid { color: var(--am-warning); }
+.rv-item__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rv-item__title {
+  font-size: 14px;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+.rv-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--am-text-dim);
+  font-size: 12px;
+}
+.rv-item__rule { color: var(--am-text-dim); }
+.rv-detail {
+  border-left: 1px solid var(--am-border);
+  background: var(--am-bg-elevated);
+  padding: 16px 18px;
+  overflow-y: auto;
+  max-height: calc(100vh - 280px);
+}
+.rv-detail__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+  color: var(--am-text-dim);
+  font-size: 12px;
+}
+.rv-detail__title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+.rv-detail__body {
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.65;
+  max-width: 68ch;
+}
+.rv-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  position: sticky;
+  bottom: 0;
+  background: var(--am-bg-elevated);
+  z-index: var(--am-z-overlay);
+}
+.rv-tasks { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12.5px; color: var(--am-text-dim); }
+
+@media (max-width: 1023px) {
+  .rv-shell { grid-template-columns: 1fr; }
+  .rv-rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--am-border);
+    padding-right: 0;
+    padding-bottom: 8px;
+  }
+  .rv-rail__list { max-height: 140px; display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; }
+  .rv-rail__list li { flex: 0 0 200px; }
+  .rv-split.is-open { grid-template-columns: 1fr; }
+  .rv-detail { border-left: 0; border-top: 1px solid var(--am-border); }
+  .rv-list, .rv-detail { max-height: none; }
+}
+@media (max-width: 767px) {
+  .rv-bar__field { width: 100%; }
+  .rv-status__label { font-size: 18px; }
+  .rv-bar :deep(.am-seg) { width: 100%; }
+  .rv-bar :deep(.am-seg .el-radio-button) { flex: 1 1 50%; }
+  .rv-bar :deep(.am-seg .el-radio-button__inner) { width: 100%; }
+  .rv-foot .rv-hint { width: 100%; }
+}
 </style>

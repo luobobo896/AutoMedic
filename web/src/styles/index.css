@@ -217,8 +217,32 @@ a { text-decoration: none; }
 .el-table { --el-table-bg-color: var(--am-bg-elevated); --el-table-tr-bg-color: var(--am-bg-elevated);
   --el-table-header-bg-color: var(--am-bg-inset); --el-table-border-color: var(--am-border);
   --el-table-text-color: var(--am-text); --el-table-header-text-color: var(--am-text-dim);
-  --el-table-row-hover-bg-color: var(--am-bg-inset); border-radius: var(--am-radius-sm); overflow: hidden; }
+  --el-table-row-hover-bg-color: var(--am-bg-inset); border-radius: var(--am-radius-sm); overflow: hidden; width: 100%; }
+.am-table-fill,
+.am-table-fill .el-table,
+.am-table-fill .el-table__inner-wrapper,
+.am-table-fill .el-table__header-wrapper,
+.am-table-fill .el-table__body-wrapper,
+.am-table-fill table {
+  width: 100% !important;
+}
 .el-drawer { --el-drawer-bg-color: var(--am-bg-elevated); }
+.review-drawer .el-drawer__header {
+  margin-bottom: 8px;
+  padding: 16px 20px 8px;
+}
+.review-drawer .el-drawer__title {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.review-drawer .el-drawer__body {
+  padding: 8px 20px 20px;
+  height: calc(100% - 56px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
 .el-dialog { --el-dialog-bg-color: var(--am-bg-elevated); border-radius: 16px; }
 
 /* 输入框 / 文本域：inset 底 + 柔和悬停 */

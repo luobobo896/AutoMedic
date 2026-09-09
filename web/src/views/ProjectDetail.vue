@@ -54,7 +54,7 @@
           <div class="am-field-help" style="margin:-4px 0 12px">
             填地址和分支。私有仓先配 git 凭证，不确定时点「测试连通」。
           </div>
-          <el-table :data="detail.repos || []" size="small">
+          <el-table ref="repoTable" :data="detail.repos || []" size="small" class="am-table-fill">
             <template #empty>
               <div class="am-empty">
                 <el-icon :size="30"><Coin /></el-icon>
@@ -133,7 +133,7 @@
               </template>
             </el-dropdown>
           </div>
-          <el-table :data="detail.rules || []" size="small">
+          <el-table ref="ruleTable" :data="detail.rules || []" size="small" class="am-table-fill">
             <template #empty>
               <div class="am-empty">
                 <el-icon :size="30"><Filter /></el-icon>
@@ -178,17 +178,15 @@
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="投递令牌" name="tokens">
+      <el-tab-pane label="投递令牌" name="tokens" lazy>
         <div class="am-card">
+          <el-alert type="info" show-icon :closable="false" style="margin-bottom:12px"
+            title="请求头带 X-AM-Token 投递。明文只显示一次。" />
           <div class="am-toolbar">
             <el-button type="primary" size="small" :icon="'Plus'" :loading="savingToken" @click="createProjectToken">新建令牌</el-button>
-            <div class="am-flex-1" />
             <el-button size="small" :icon="'QuestionFilled'" @click="ingestGuide = true">怎么把告警送进来</el-button>
           </div>
-          <div class="am-field-help" style="margin:-4px 0 12px">
-            请求头 <span class="am-mono">X-AM-Token</span>。明文只显示一次。
-          </div>
-          <el-table :data="detail.tokens || []" size="small">
+          <el-table ref="tokenTable" :data="detail.tokens || []" size="small" class="am-table-fill">
             <template #empty>
               <div class="am-empty">
                 <el-icon :size="30"><Ticket /></el-icon>
@@ -202,14 +200,19 @@
                 </div>
               </div>
             </template>
-            <el-table-column prop="name" label="名称" width="180" />
-            <el-table-column prop="prefix" label="前缀" width="140" />
+            <el-table-column prop="name" label="名称" min-width="180" />
+            <el-table-column prop="prefix" label="前缀" min-width="160">
+              <template #default="{ row }"><span class="am-mono">{{ row.prefix || '-' }}</span></template>
+            </el-table-column>
             <el-table-column label="状态" width="90">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="最近使用" width="170">
+            <el-table-column label="IP 白名单" min-width="200" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.allow_cidr || '不限制' }}</template>
+            </el-table-column>
+            <el-table-column label="最近使用" min-width="200">
               <template #default="{ row }">
                 <span :class="{ 'am-text-dim': !row.last_used_at }">{{ row.last_used_at ? formatTime(row.last_used_at) : '从未使用' }}</span>
               </template>
@@ -459,7 +462,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   getProject, updateProject, createRepo, deleteRepo, testRepo,
@@ -482,6 +485,9 @@ const savingRepo = ref(false)
 const savingRule = ref(false)
 const savingToken = ref(false)
 const tab = ref('repos')
+const repoTable = ref(null)
+const ruleTable = ref(null)
+const tokenTable = ref(null)
 const models = ref([])
 const credentials = ref([])
 
@@ -798,6 +804,13 @@ async function saveProject() {
     savingProject.value = false
   }
 }
+
+watch(tab, async () => {
+  await nextTick()
+  repoTable.value?.doLayout?.()
+  ruleTable.value?.doLayout?.()
+  tokenTable.value?.doLayout?.()
+})
 
 watch(() => route.params.id, (v) => { id.value = v; load() })
 
