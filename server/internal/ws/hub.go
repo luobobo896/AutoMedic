@@ -3,6 +3,7 @@ package ws
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +41,7 @@ type Source interface {
 type client struct {
 	conn *websocket.Conn
 	send chan []byte
+	once sync.Once
 	// pending 连接建立瞬间缓存的历史帧，先于 send 写出，避免超出 channel 容量被丢弃
 	pending [][]byte
 }
@@ -86,9 +88,10 @@ func (h *Hub) unsubscribe(taskID uint, c *client) {
 		if len(m) == 0 {
 			delete(h.clients, taskID)
 		}
+		// 仅当从 map 成功移除时才关闭 channel；用 once 兜底，杜绝重复 close 导致 panic
+		c.once.Do(func() { close(c.send) })
 	}
 	h.mu.Unlock()
-	close(c.send)
 }
 
 // Publish 广播消息给订阅该任务的客户端
@@ -127,6 +130,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
+	Subprotocols:    []string{"automedic"},
 }
 
 // ServeTask 处理 /ws/tasks/:id 订阅
@@ -135,6 +139,24 @@ func (h *Hub) ServeTask(c *gin.Context) {
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
 		return
+	}
+	// 支持通过 WebSocket 子协议传递 JWT：Sec-WebSocket-Protocol: automedic.<token>
+	// 避免 token 出现在 URL query（会进入访问日志）。缺失时保留 ?token= 回退路径。
+	if sub := c.Request.Header.Get("Sec-WebSocket-Protocol"); sub != "" {
+		var protocols []string
+		for _, part := range strings.Split(sub, ",") {
+			part = strings.TrimSpace(part)
+			if strings.HasPrefix(part, "automedic.") {
+				token := strings.TrimPrefix(part, "automedic.")
+				c.Request.Header.Set("Authorization", "Bearer "+token)
+				protocols = append(protocols, "automedic")
+			} else if part == "automedic" {
+				protocols = append(protocols, "automedic")
+			}
+		}
+		if len(protocols) > 0 {
+			c.Request.Header.Set("Sec-WebSocket-Protocol", strings.Join(protocols, ", "))
+		}
 	}
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -217,9 +239,3 @@ func (h *Hub) fillBacklog(taskID uint, cl *client) {
 
 // historyLimit 建连时回放的历史日志上限
 const historyLimit = 5000
-
-func (h *Hub) unsubscribeLater(taskID uint, c *client) {
-	// 占位：实际解绑在读循环出错或超时后触发
-	_ = taskID
-	_ = c
-}

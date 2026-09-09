@@ -1,8 +1,8 @@
 package api
 
 import (
-	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/automedic/automedic/internal/auth"
@@ -22,6 +22,8 @@ type Handlers struct {
 	crypt *crypto.Service
 	hub   *ws.Hub
 	auth  *auth.Service
+	// settingsMu 保护对 h.cfg.DSH.* / h.cfg.Git.* 等运行时配置的读写，避免与 worker 读配置产生数据竞争
+	settingsMu sync.Mutex
 }
 
 func NewHandlers(db *gorm.DB, cfg *config.Config, exec *service.Executor, crypt *crypto.Service, hub *ws.Hub, authSvc *auth.Service) *Handlers {
@@ -82,6 +84,8 @@ func (h *Handlers) ServeTaskWS(c *gin.Context) {
 
 // GetSettings 读取运行时设置
 func (h *Handlers) GetSettings(c *gin.Context) {
+	h.settingsMu.Lock()
+	defer h.settingsMu.Unlock()
 	OK(c, gin.H{
 		"dsh": gin.H{
 			"bin":              h.cfg.DSH.Bin,
@@ -114,8 +118,10 @@ func (h *Handlers) GetSettings(c *gin.Context) {
 	})
 }
 
-// UpdateSettings 更新运行时设置（内存生效 + 落库持久化）
+// UpdateSettings 更新运行时设置（仅内存生效，重启后回到配置文件/环境变量的值；持久化待实现）
 func (h *Handlers) UpdateSettings(c *gin.Context) {
+	h.settingsMu.Lock()
+	defer h.settingsMu.Unlock()
 	var body struct {
 		DSH *struct {
 			Bin             *string  `json:"bin"`
@@ -209,6 +215,3 @@ func setStr(dst *string, v *string) {
 		*dst = *v
 	}
 }
-
-// 占位：保持 context 引用，便于后续扩展
-var _ = context.Background

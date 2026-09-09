@@ -33,6 +33,9 @@ type Executor struct {
 	limit  int
 	cancel map[uint]context.CancelFunc
 	mu     sync.Mutex
+	// repoMu 保护 repoLocks；repoLocks 按仓库 ID 维护独立互斥锁，使同一仓库的任务串行执行。
+	repoMu    sync.Mutex
+	repoLocks map[uint]*sync.Mutex
 }
 
 func NewExecutor(db *gorm.DB, cfg *config.Config, crypt *crypto.Service, hub *ws.Hub) *Executor {
@@ -41,6 +44,7 @@ func NewExecutor(db *gorm.DB, cfg *config.Config, crypt *crypto.Service, hub *ws
 	e := &Executor{
 		db: db, cfg: cfg, gitm: gitm, dshr: dsh.NewRunner(&cfg.DSH), crypt: crypt, hub: hub,
 		queue: make(chan uint, 1024), limit: 4, cancel: map[uint]context.CancelFunc{},
+		repoLocks: map[uint]*sync.Mutex{},
 	}
 	return e
 }
@@ -122,31 +126,52 @@ func (e *Executor) clearCancel(taskID uint) {
 	e.mu.Unlock()
 }
 
+// lockRepo 对指定仓库加锁，保证同一仓库的任务串行执行（避免并发复用工作区互相 reset/checkout 导致补丁丢失），
+// 不同仓库之间仍并行。返回的解锁函数在调用时释放该仓库的锁。
+func (e *Executor) lockRepo(id uint) func() {
+	e.repoMu.Lock()
+	l, ok := e.repoLocks[id]
+	if !ok {
+		l = &sync.Mutex{}
+		e.repoLocks[id] = l
+	}
+	e.repoMu.Unlock()
+	l.Lock()
+	return func() { l.Unlock() }
+}
+
 // Execute 执行单个修复任务
 func (e *Executor) Execute(ctx context.Context, taskID uint) error {
-	var task model.Task
-	if err := e.db.Preload("Event").Preload("Repo").Preload("Rule").Preload("Project").
-		First(&task, taskID).Error; err != nil {
-		return err
+	now := time.Now()
+	// 原子抢占：仅当任务仍为 pending 时才置为 running，避免 scanner 与多个 worker 重复执行同一任务
+	res := e.db.Model(&model.Task{}).Where("id = ? AND status = ?", taskID, model.TaskStatusPending).
+		Updates(map[string]any{"status": model.TaskStatusRunning, "started_at": now, "stage": "prepare"})
+	if res.Error != nil {
+		return res.Error
 	}
-	if task.Status != model.TaskStatusPending {
-		return nil
+	if res.RowsAffected == 0 {
+		return nil // 已被其它 worker 抢占或状态已变化
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
 	e.registerCancel(taskID, cancel)
 	defer func() { e.clearCancel(taskID); cancel() }()
 
-	now := time.Now()
-	upd := map[string]any{
-		"status": model.TaskStatusRunning, "started_at": now, "stage": "prepare",
+	var task model.Task
+	if err := e.db.Preload("Event").Preload("Repo").Preload("Rule").Preload("Project").
+		First(&task, taskID).Error; err != nil {
+		return err
 	}
-	e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(upd)
+
 	e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: string(model.TaskStatusRunning), Stage: "prepare"})
 
 	lw := NewLogWriter(e.db, e.hub, taskID)
 	defer lw.Close()
 	sink := lw.Sink()
+
+	// 同一仓库串行执行，避免并发复用工作区互相 reset/checkout 导致补丁丢失
+	unlock := e.lockRepo(task.RepoID)
+	defer unlock()
 
 	outcome := e.run(runCtx, &task, sink)
 
@@ -287,18 +312,11 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 		return res
 	}
 
-	// 6. 收集变更
+	// 6. 判断是否有代码变更（清理平台产物前，依据真实工作区状态）
 	changed, _ := wsDir.ChangedFiles(ctx)
 	if len(changed) == 0 && len(res.ChangedFiles) > 0 {
 		changed = res.ChangedFiles
 	}
-	res.ChangedFiles = changed
-	stat, _ := wsDir.DiffStat(ctx)
-	res.DiffStat = strings.TrimSpace(stat)
-	patchText, _ := wsDir.Patch(ctx)
-	res.Patch = patchText
-
-	// 7. 无代码变更（多为非代码问题）
 	noChange := (rr != nil && rr.NoCodeChange) || len(changed) == 0
 	if noChange {
 		e.dshr.CleanupArtifacts(wsDir.Dir)
@@ -311,6 +329,13 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 		return res
 	}
 	e.dshr.CleanupArtifacts(wsDir.Dir)
+
+	// 清理平台指令文件（AUTOMEDIC.md / AGENTS.md）之后再生成补丁与变更列表，
+	// 避免把指令文件一并提交进用户仓库
+	res.ChangedFiles, _ = wsDir.ChangedFiles(ctx)
+	res.DiffStat, _ = wsDir.DiffStat(ctx)
+	res.DiffStat = strings.TrimSpace(res.DiffStat)
+	res.Patch, _ = wsDir.Patch(ctx)
 
 	// 8. 半自动：等待人工确认
 	if task.Mode == model.FixModeSemi {
@@ -454,6 +479,8 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 	})
 	sink("sys", fmt.Sprintf("[automedic] 人工确认：%s %s", operator, note))
 
+	// 清理平台指令文件（AUTOMEDIC.md / AGENTS.md），Cleanup 幂等（无 manifest 时是 no-op），避免提交进用户仓库
+	e.dshr.CleanupArtifacts(wsDir.Dir)
 	fin, err := e.finalize(ctx, &task, wsDir, sink)
 	if err != nil {
 		fail := map[string]any{
@@ -690,7 +717,8 @@ func (e *Executor) TestRepo(ctx context.Context, repo *model.Repository) error {
 		Env:  env, Timeout: 60 * time.Second,
 	}, func(_, line string) { sb.WriteString(line); sb.WriteString("\n") })
 	if res.Err != nil {
-		return fmt.Errorf("exit=%d %s", res.ExitCode, strings.TrimSpace(sb.String()))
+		// git 报错会回显带凭证的远端地址，回传前必须脱敏
+		return fmt.Errorf("exit=%d %s", res.ExitCode, strings.TrimSpace(execx.ScrubURL(sb.String())))
 	}
 	return nil
 }

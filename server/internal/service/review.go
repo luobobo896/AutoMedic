@@ -360,7 +360,7 @@ func (e *Executor) recordRepoUsage(repo *model.Repository, action, result, messa
 	if repo == nil {
 		return
 	}
-	usage := model.CredentialUsage{RefType: "repo", RefID: repo.ID, Action: action, Result: result, Message: truncate(message, 500), CreatedAt: time.Now()}
+	usage := model.CredentialUsage{TenantID: repo.TenantID, RefType: "repo", RefID: repo.ID, Action: action, Result: result, Message: truncate(message, 500), CreatedAt: time.Now()}
 	if repo.CredentialID != nil {
 		usage.CredentialID = *repo.CredentialID
 	} else {

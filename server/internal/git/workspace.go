@@ -79,13 +79,14 @@ func NewManager(bin, root string, depth int, reuse bool, prefix, name, email str
 
 // Prepare 准备隔离工作区：克隆/复用、重置、切出修复分支
 func (m *Manager) Prepare(ctx context.Context, spec *RepoSpec, taskID uint, sink execx.Sink) (*Workspace, error) {
-	dir := filepath.Join(m.Root, sanitize(spec.ProjectKey), fmt.Sprintf("%d-%s", spec.RepoID, sanitize(spec.RepoName)))
+	rootAbs := m.Root
+	if abs, err := filepath.Abs(rootAbs); err == nil {
+		rootAbs = abs
+	}
+	dir := filepath.Join(rootAbs, sanitize(spec.ProjectKey), fmt.Sprintf("%d-%s", spec.RepoID, sanitize(spec.RepoName)))
 	// 统一使用绝对路径：子进程 chdir 后相对路径会错位
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
-	}
-	if abs, err := filepath.Abs(m.Root); err == nil {
-		m.Root = abs
 	}
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return nil, err
@@ -125,22 +126,22 @@ func (m *Manager) Prepare(ctx context.Context, spec *RepoSpec, taskID uint, sink
 					sink("sys", fmt.Sprintf("[git] 分支 %s 不存在，回退到远端默认分支 %s", branch, def))
 					branch = def
 					if out3, code3, err3 := m.runOut(ctx, dir, env, "fetch", "--prune", "origin", branch); err3 != nil {
-						sink("stderr", out3)
+						sink("stderr", execx.ScrubURL(out3))
 						return nil, fmt.Errorf("git fetch: %w (code=%d)", err3, code3)
 					}
 				}
 			}
 			if branch == spec.Branch {
-				sink("stderr", out)
+				sink("stderr", execx.ScrubURL(out))
 				return nil, fmt.Errorf("git fetch: %w (code=%d)", err, code)
 			}
 		}
 		if out, code, err := m.runOut(ctx, dir, env, "checkout", "-f", branch); err != nil {
-			sink("stderr", out)
+			sink("stderr", execx.ScrubURL(out))
 			return nil, fmt.Errorf("git checkout: %w (code=%d)", err, code)
 		}
 		if out, code, err := m.runOut(ctx, dir, env, "reset", "--hard", "origin/"+branch); err != nil {
-			sink("stderr", out)
+			sink("stderr", execx.ScrubURL(out))
 			return nil, fmt.Errorf("git reset: %w (code=%d)", err, code)
 		}
 	} else {
@@ -165,13 +166,13 @@ func (m *Manager) Prepare(ctx context.Context, spec *RepoSpec, taskID uint, sink
 				}
 				fallback = append(fallback, authURL, dir)
 				if out2, code2, err2 := m.runOut(ctx, filepath.Dir(dir), env, fallback...); err2 != nil {
-					sink("stderr", out2)
+					sink("stderr", execx.ScrubURL(out2))
 					return nil, fmt.Errorf("git clone: %w (code=%d)", err2, code2)
 				}
 				cur, _, _ := m.runOut(ctx, dir, env, "rev-parse", "--abbrev-ref", "HEAD")
 				branch = strings.TrimSpace(cur)
 			} else {
-				sink("stderr", out)
+				sink("stderr", execx.ScrubURL(out))
 				return nil, fmt.Errorf("git clone: %w (code=%d)", err, code)
 			}
 		}
@@ -179,7 +180,7 @@ func (m *Manager) Prepare(ctx context.Context, spec *RepoSpec, taskID uint, sink
 
 	// 清理工作区脏数据
 	if out, code, err := m.runOut(ctx, dir, env, "clean", "-fd"); err != nil {
-		sink("stderr", out)
+		sink("stderr", execx.ScrubURL(out))
 		return nil, fmt.Errorf("git clean: %w (code=%d)", err, code)
 	}
 
@@ -192,7 +193,7 @@ func (m *Manager) Prepare(ctx context.Context, spec *RepoSpec, taskID uint, sink
 	// 切出修复分支
 	fixBranch := fmt.Sprintf("%s%d-%s", m.BranchPrefix, taskID, time.Now().Format("20060102-150405"))
 	if out, code, err := m.runOut(ctx, dir, env, "checkout", "-b", fixBranch); err != nil {
-		sink("stderr", out)
+		sink("stderr", execx.ScrubURL(out))
 		return nil, fmt.Errorf("git checkout -b: %w (code=%d)", err, code)
 	}
 	ws.Branch = fixBranch
@@ -326,8 +327,11 @@ func (w *Workspace) Cleanup() {
 	w.cleanups = nil
 }
 
+// runOut 执行 git 并统一脱敏输出：git 报错会回显远端地址，而注入凭证后的地址形如
+// https://user:token@host/...，一旦进入任务日志或 error_msg 就等于泄露仓库令牌。
 func (m *Manager) runOut(ctx context.Context, dir string, env map[string]string, args ...string) (string, int, error) {
-	return execx.RunSimpleEnv(ctx, dir, env, m.Bin, args...)
+	out, code, err := execx.RunSimpleEnv(ctx, dir, env, m.Bin, args...)
+	return execx.ScrubURL(out), code, err
 }
 
 // authEnv 返回注入凭证后的远端 URL、环境变量与清理函数

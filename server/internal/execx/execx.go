@@ -2,12 +2,14 @@ package execx
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -64,6 +66,17 @@ func Run(ctx context.Context, spec Spec, sink Sink) Result {
 		return Result{Err: err}
 	}
 
+	// 独立进程组：超时时整组回收派生的子进程，避免子进程残留持有管道导致 wg.Wait 永久阻塞
+	pgid := cmd.Process.Pid
+	waitDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		case <-waitDone:
+		}
+	}()
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var sb strings.Builder
@@ -91,6 +104,7 @@ func Run(ctx context.Context, spec Spec, sink Sink) Result {
 	wg.Wait()
 
 	err = cmd.Wait()
+	close(waitDone)
 	res := Result{Output: sb.String()}
 	if err != nil {
 		var ee *exec.ExitError
@@ -104,7 +118,7 @@ func Run(ctx context.Context, spec Spec, sink Sink) Result {
 			res.Err = fmt.Errorf("%w (%v)", context.DeadlineExceeded, spec.Timeout)
 		}
 	}
-	slog.Debug("exec done", "bin", spec.Bin, "args", strings.Join(spec.Args, " "), "code", res.ExitCode)
+	slog.Debug("exec done", "bin", spec.Bin, "args", ScrubURL(strings.Join(spec.Args, " ")), "code", res.ExitCode)
 	return res
 }
 
@@ -136,7 +150,24 @@ func RunSimpleEnv(ctx context.Context, dir string, env map[string]string, bin st
 		cmd.Env = append(osEnvironFiltered(), buildEnv(env)...)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	out, err := cmd.CombinedOutput()
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	if err := cmd.Start(); err != nil {
+		return "", -1, err
+	}
+	// 独立进程组：超时时整组回收派生的子进程，避免子进程残留持有管道导致永久阻塞
+	pgid := cmd.Process.Pid
+	waitDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		case <-waitDone:
+		}
+	}()
+	err := cmd.Wait()
+	close(waitDone)
 	code := 0
 	if err != nil {
 		var ee *exec.ExitError
@@ -146,5 +177,23 @@ func RunSimpleEnv(ctx context.Context, dir string, env map[string]string, bin st
 			code = -1
 		}
 	}
-	return string(out), code, err
+	return buf.String(), code, err
+}
+
+// Redact 将字符串中出现的可疑子串（如凭据、token）替换为 ***，避免泄露到日志。
+func Redact(s string, secrets ...string) string {
+	for _, sec := range secrets {
+		if sec == "" {
+			continue
+		}
+		s = strings.ReplaceAll(s, sec, "***")
+	}
+	return s
+}
+
+// ScrubURL 将 URL 中的 user:pass@ 凭证抹掉，例如
+// https://user:token@host/...  ->  https://***@host/...
+func ScrubURL(s string) string {
+	re := regexp.MustCompile(`(?i)(https?|ssh|git)://[^/\s:@]+:[^/\s@]+@`)
+	return re.ReplaceAllString(s, "${1}://***@")
 }
