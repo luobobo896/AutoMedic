@@ -166,6 +166,7 @@ let wsRetryTimer = null
 let unmounted = false
 let lastSeq = 0
 let logIndex = new Set()
+let loadGen = 0
 
 function ended(status) {
   return ['success', 'failed', 'ignored', 'rejected', 'cancelled'].includes(status)
@@ -209,11 +210,15 @@ async function loadAll({ silent } = {}) {
     booting.value = false
     return
   }
+  const gen = ++loadGen
+  const tid = taskId.value
   if (!silent && !task.value.id) booting.value = true
   try {
-    const r = await getTask(taskId.value)
+    const r = await getTask(tid)
+    if (gen !== loadGen) return
     task.value = r.data || {}
-    const lr = await taskLogs(taskId.value, silent ? { after_seq: lastSeq, limit: 1000 } : { limit: 2000 })
+    const lr = await taskLogs(tid, silent ? { after_seq: lastSeq, limit: 1000 } : { limit: 2000 })
+    if (gen !== loadGen) return
     if (!silent) {
       logs.value = []
       logIndex = new Set()
@@ -221,7 +226,8 @@ async function loadAll({ silent } = {}) {
     }
     appendLogs(Array.isArray(lr.data) ? lr.data : [])
     if (ended(task.value.status) || task.value.patch || task.value.diff_stat) {
-      const pr = await taskPatch(taskId.value)
+      const pr = await taskPatch(tid)
+      if (gen !== loadGen) return
       patchText.value = pr.data?.patch || patchText.value
     }
     if (ended(task.value.status)) {
@@ -232,7 +238,7 @@ async function loadAll({ silent } = {}) {
       startPolling()
     }
   } finally {
-    booting.value = false
+    if (gen === loadGen) booting.value = false
   }
 }
 
@@ -372,6 +378,7 @@ async function cancelTaskDo() {
 watch(autoScroll, (v) => { if (v) scrollBottom() })
 watch(id, (next, prev) => {
   if (String(next) === String(prev)) return
+  loadGen++
   stopPolling()
   stopWS()
   task.value = {}

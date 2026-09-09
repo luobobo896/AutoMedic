@@ -71,12 +71,12 @@
 
     <el-dialog v-model="dialog" title="创建项目令牌" width="520">
       <el-form :model="form" label-width="110px">
-        <el-form-item label="所属项目">
+        <el-form-item label="所属项目" required>
           <el-select v-model="form.project_id" style="width:100%">
             <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="名称"><el-input v-model="form.name" placeholder="如：loki-collector" /></el-form-item>
+        <el-form-item label="名称" required><el-input v-model="form.name" placeholder="如：loki-collector" /></el-form-item>
         <el-form-item label="IP 白名单">
           <el-input v-model="form.allow_cidr" placeholder="逗号分隔 CIDR，留空不限制" />
         </el-form-item>
@@ -86,7 +86,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" @click="submit">创建</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">创建</el-button>
       </template>
     </el-dialog>
 
@@ -110,6 +110,7 @@ const list = ref([])
 const projects = ref([])
 const total = ref(0)
 const loading = ref(false)
+const saving = ref(false)
 const dialog = ref(false)
 const curlDialog = ref(false)
 const curlText = ref('')
@@ -133,20 +134,34 @@ function search() {
 }
 
 async function submit() {
-  const payload = {
-    project_id: form.value.project_id,
-    name: form.value.name,
-    allow_cidr: form.value.allow_cidr || ''
+  if (saving.value) return
+  if (!form.value.project_id) {
+    ElMessage.error('请选择所属项目')
+    return
   }
-  if (form.value.expires_at) payload.expires_at = new Date(form.value.expires_at).toISOString()
-  const r = await createToken(payload)
-  plainTokens.value[r.data.token.id] = r.data.plain_token
-  dialog.value = false
-  await ElMessageBox.alert(
-    `令牌仅显示一次，请立即保存：\n\n${r.data.plain_token}`,
-    '创建成功', { confirmButtonText: '我已保存' }
-  ).catch(() => { /* ESC / 点关闭同样按已读处理 */ })
-  load()
+  if (!form.value.name) {
+    ElMessage.error('请填写名称')
+    return
+  }
+  saving.value = true
+  try {
+    const payload = {
+      project_id: form.value.project_id,
+      name: form.value.name,
+      allow_cidr: form.value.allow_cidr || ''
+    }
+    if (form.value.expires_at) payload.expires_at = new Date(form.value.expires_at).toISOString()
+    const r = await createToken(payload)
+    plainTokens.value[r.data.token.id] = r.data.plain_token
+    dialog.value = false
+    await ElMessageBox.alert(
+      `令牌仅显示一次，请立即保存：\n\n${r.data.plain_token}`,
+      '创建成功', { confirmButtonText: '我已保存' }
+    ).catch(() => { /* ESC / 点关闭同样按已读处理 */ })
+    await load()
+  } finally {
+    saving.value = false
+  }
 }
 
 async function toggle(row) {

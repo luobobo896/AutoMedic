@@ -37,7 +37,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 全局安装 dsh（DeepSeek Harness）。官方 npm 包名：@deepseek-ai/dsh
 # 不要改为 @deepseek/dsh 或 dsh —— 这两个不是官方包。
-ARG DSH_VERSION=latest
+# 默认钉死文档中的当前版本；升级时同步改此处、compose 与 docs/部署文档.md。
+ARG DSH_VERSION=0.1.2-rc.1
 RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" --no-audit --no-fund && \
     (dsh --version || true)
 ENV PATH="/usr/local/bin:${PATH}"

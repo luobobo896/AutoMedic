@@ -34,7 +34,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        DSH_VERSION: ${DSH_VERSION:-latest}
+        DSH_VERSION: ${DSH_VERSION:-0.1.2-rc.1}
     image: automedic/automedic:${AUTOMEDIC_IMAGE_TAG:-latest}
     container_name: automedic
     restart: unless-stopped

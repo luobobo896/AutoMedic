@@ -51,6 +51,9 @@ func SeedRBAC(db *gorm.DB, cfg *config.Config) error {
 	var count int64
 	db.Model(&model.User{}).Count(&count)
 	if count == 0 {
+		if cfg.Server.Mode == "release" && (pwd == "admin123" || pwd == "change-me") {
+			return errors.New("生产模式拒绝使用默认引导口令，请设置 auth.bootstrap_admin.password 或 AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD")
+		}
 		hash, err := auth.HashPassword(pwd)
 		if err != nil {
 			return err

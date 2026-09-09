@@ -65,6 +65,12 @@ func TestAuthEnvSSHKey(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("私钥权限应为 0600，实际 %v", info.Mode().Perm())
 	}
+	if strings.Contains(cmd, "StrictHostKeyChecking=no") {
+		t.Fatalf("不得关闭主机密钥校验: %s", cmd)
+	}
+	if !strings.Contains(cmd, "StrictHostKeyChecking=accept-new") {
+		t.Fatalf("应使用 accept-new: %s", cmd)
+	}
 	cleanup()
 	if _, err := os.Stat(keyFile); err == nil {
 		t.Fatal("cleanup 后私钥文件应被删除")
@@ -84,6 +90,36 @@ func TestAuthEnvHTTPToken(t *testing.T) {
 	}
 	if strings.Contains(u, " ") {
 		t.Fatalf("URL 含非法字符: %s", u)
+	}
+}
+
+func TestAuthEnvSSHAskpassUsesEnvNotEcho(t *testing.T) {
+	m := NewManager("git", t.TempDir(), 1, true, "automedic/fix-", "AutoMedic", "automedic@local")
+	_, env, cleanup, err := m.PublicAuthURL("git@github.com:acme/api.git", &Auth{
+		Type: "ssh_key", Username: "git", Secret: "-----BEGIN OPENSSH PRIVATE KEY-----\nFAKE\n-----END OPENSSH PRIVATE KEY-----\n",
+		Passphrase: "p'ass; rm -rf /",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if env["AUTOMEDIC_SSH_PASSPHRASE"] != "p'ass; rm -rf /" {
+		t.Fatalf("口令应走环境变量: %v", env["AUTOMEDIC_SSH_PASSPHRASE"])
+	}
+	ask := env["SSH_ASKPASS"]
+	if ask == "" {
+		t.Fatal("缺少 SSH_ASKPASS")
+	}
+	b, err := os.ReadFile(ask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(b)
+	if strings.Contains(body, "p'ass") || strings.Contains(body, "echo '") {
+		t.Fatalf("askpass 不得内嵌口令: %s", body)
+	}
+	if !strings.Contains(body, "AUTOMEDIC_SSH_PASSPHRASE") {
+		t.Fatalf("askpass 应从环境变量读口令: %s", body)
 	}
 }
 

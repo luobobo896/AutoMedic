@@ -44,7 +44,7 @@ func newFlow(t *testing.T) *flowEnv {
 	cfg := config.Default()
 	cfg.Server.Mode = "release"
 	cfg.Auth.JWTSecret = "flow-test-jwt-secret-please-change"
-	cfg.Auth.BootstrapAdmin = config.BootstrapAdmin{Username: "admin", Password: "admin123", TenantName: "默认租户", TenantKey: "default"}
+	cfg.Auth.BootstrapAdmin = config.BootstrapAdmin{Username: "admin", Password: "flow-test-admin-pass", TenantName: "默认租户", TenantKey: "default"}
 	cfg.Security.SecretKey = "01234567890123456789012345678901"
 	ocrBin := filepath.Join(t.TempDir(), "ocr")
 	if err := os.WriteFile(ocrBin, []byte("#!/bin/sh\necho missing-llm >&2\nexit 1\n"), 0o700); err != nil {
@@ -65,7 +65,7 @@ func newFlow(t *testing.T) *flowEnv {
 	h := NewHandlers(db, cfg, exec, crypt, hub, authSvc)
 	r := NewRouter(&Deps{Cfg: cfg, Handlers: h, Auth: authSvc})
 	e := &flowEnv{t: t, r: r, db: db}
-	login := e.do(http.MethodPost, "/api/v1/auth/login", "", map[string]any{"username": "admin", "password": "admin123"})
+	login := e.do(http.MethodPost, "/api/v1/auth/login", "", map[string]any{"username": "admin", "password": "flow-test-admin-pass"})
 	if login.Code != 0 {
 		t.Fatalf("login: %+v", login)
 	}
@@ -486,6 +486,110 @@ func TestRetrySuccessfulTaskRejected(t *testing.T) {
 	}
 	if !strings.Contains(res.Msg, "已成功") {
 		t.Fatalf("失败信息应说明已成功，实际: %s", res.Msg)
+	}
+}
+
+func TestUpdateSettingsIgnoresDangerousFields(t *testing.T) {
+	e := newFlow(t)
+	before := e.ok(http.MethodGet, "/api/v1/settings", nil)
+	dshBefore, _ := before["dsh"].(map[string]any)
+	gitBefore, _ := before["git"].(map[string]any)
+	oldTpl, _ := dshBefore["command_template"].(string)
+	oldHook, _ := gitBefore["release_hook"].(string)
+	oldBin, _ := dshBefore["bin"].(string)
+
+	e.ok(http.MethodPut, "/api/v1/settings", map[string]any{
+		"dsh": map[string]any{
+			"bin":              "/tmp/evil-dsh",
+			"command_template": "rm -rf /",
+			"use_shell":        true,
+			"permission_mode":  "workspace-write",
+			"timeout_sec":      90,
+		},
+		"git": map[string]any{
+			"release_hook":   "curl evil.example",
+			"workspace_root": "/tmp/ws",
+			"keep_days":      3,
+		},
+	})
+	after := e.ok(http.MethodGet, "/api/v1/settings", nil)
+	dshAfter, _ := after["dsh"].(map[string]any)
+	gitAfter, _ := after["git"].(map[string]any)
+	if dshAfter["command_template"] != oldTpl {
+		t.Fatalf("command_template 被 Web 改写: %v", dshAfter["command_template"])
+	}
+	if dshAfter["bin"] != oldBin {
+		t.Fatalf("dsh.bin 被 Web 改写: %v", dshAfter["bin"])
+	}
+	if gitAfter["release_hook"] != oldHook {
+		t.Fatalf("release_hook 被 Web 改写: %v", gitAfter["release_hook"])
+	}
+	if gitAfter["workspace_root"] == "/tmp/ws" {
+		t.Fatal("workspace_root 被 Web 改写")
+	}
+	if n, _ := dshAfter["timeout_sec"].(float64); n != 90 {
+		t.Fatalf("timeout_sec 应可改，实际 %v", dshAfter["timeout_sec"])
+	}
+	deny := e.do(http.MethodPut, "/api/v1/settings", e.token, map[string]any{
+		"dsh": map[string]any{"permission_mode": "danger-full-access"},
+	})
+	if deny.Status == http.StatusOK && deny.Code == 0 {
+		t.Fatal("danger-full-access 不应被 Web 接受")
+	}
+}
+
+func TestReplaceUserRolesRejectsPlatformRoleForTenantAdmin(t *testing.T) {
+	e := newFlow(t)
+	var tenant model.Tenant
+	if err := e.db.First(&tenant).Error; err != nil {
+		t.Fatal(err)
+	}
+	var superRole, tenantAdmin model.Role
+	if err := e.db.Where("code = ? AND tenant_id = 0", model.RoleSuperAdmin).First(&superRole).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.Where("code = ? AND tenant_id = ?", model.RoleTenantAdmin, tenant.ID).First(&tenantAdmin).Error; err != nil {
+		t.Fatal(err)
+	}
+	created := e.ok(http.MethodPost, "/api/v1/users", map[string]any{
+		"username": "ta1", "password": "ta1-pass-ok", "tenant_id": tenant.ID,
+		"role_ids": []uint{tenantAdmin.ID},
+	})
+	uid := idOf(created)
+	if uid == 0 {
+		t.Fatal("用户 id 为空")
+	}
+	login := e.do(http.MethodPost, "/api/v1/auth/login", "", map[string]any{"username": "ta1", "password": "ta1-pass-ok"})
+	if login.Code != 0 {
+		t.Fatalf("租户管理员登录失败: %+v", login)
+	}
+	taToken := str(login.Data, "token")
+	deny := e.do(http.MethodPut, fmt.Sprintf("/api/v1/users/%d", uid), taToken, map[string]any{
+		"role_ids": []uint{superRole.ID},
+	})
+	if deny.Status == http.StatusOK && deny.Code == 0 {
+		t.Fatal("租户管理员不应能绑定平台超管角色")
+	}
+	if !strings.Contains(deny.Msg, "平台") {
+		t.Fatalf("失败信息应说明不能绑平台角色: %s", deny.Msg)
+	}
+}
+
+func TestCreateProjectDropsReleaseHook(t *testing.T) {
+	e := newFlow(t)
+	proj := e.ok(http.MethodPost, "/api/v1/projects", map[string]any{
+		"name": "hook-drop", "key": "hook-drop", "release_hook": "rm -rf /",
+	})
+	if str(proj, "release_hook") != "" {
+		t.Fatalf("创建项目不应写入 release_hook: %+v", proj)
+	}
+	pid := idOf(proj)
+	e.ok(http.MethodPut, fmt.Sprintf("/api/v1/projects/%d", pid), map[string]any{
+		"name": "hook-drop", "release_hook": "curl evil",
+	})
+	got := e.ok(http.MethodGet, fmt.Sprintf("/api/v1/projects/%d", pid), nil)
+	if str(got["project"], "release_hook") != "" {
+		t.Fatalf("更新项目不应写入 release_hook: %+v", got["project"])
 	}
 }
 

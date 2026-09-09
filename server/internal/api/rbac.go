@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/automedic/automedic/internal/auth"
 	"github.com/automedic/automedic/internal/model"
@@ -12,6 +14,50 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+type loginBucket struct {
+	fails int
+	until time.Time
+}
+
+var loginGuard = struct {
+	mu   sync.Mutex
+	byIP map[string]*loginBucket
+}{byIP: map[string]*loginBucket{}}
+
+func loginAllowed(ip string) bool {
+	loginGuard.mu.Lock()
+	defer loginGuard.mu.Unlock()
+	b := loginGuard.byIP[ip]
+	if b == nil {
+		return true
+	}
+	if time.Now().Before(b.until) {
+		return false
+	}
+	return true
+}
+
+func recordLoginFail(ip string) {
+	loginGuard.mu.Lock()
+	defer loginGuard.mu.Unlock()
+	b := loginGuard.byIP[ip]
+	if b == nil {
+		b = &loginBucket{}
+		loginGuard.byIP[ip] = b
+	}
+	b.fails++
+	if b.fails >= 8 {
+		b.until = time.Now().Add(time.Minute)
+		b.fails = 0
+	}
+}
+
+func recordLoginOK(ip string) {
+	loginGuard.mu.Lock()
+	defer loginGuard.mu.Unlock()
+	delete(loginGuard.byIP, ip)
+}
 
 // ---------- 登录 / 令牌 ----------
 
@@ -32,12 +78,18 @@ func (h *Handlers) Login(c *gin.Context) {
 		return
 	}
 	ip := c.ClientIP()
+	if !loginAllowed(ip) {
+		Fail(c, http.StatusTooManyRequests, "登录失败次数过多，请稍后再试")
+		return
+	}
 	p, access, refresh, err := h.auth.Login(in.Username, in.Password, ip, c.GetHeader("User-Agent"))
 	if err != nil {
+		recordLoginFail(ip)
 		slog.Warn("登录失败", "username", in.Username, "ip", ip, "result", err.Error())
 		Fail(c, http.StatusUnauthorized, err.Error())
 		return
 	}
+	recordLoginOK(ip)
 	slog.Info("登录成功", "username", in.Username, "ip", ip, "result", "ok")
 	OK(c, gin.H{"token": access, "refresh_token": refresh, "user": profileOf(p)})
 }
@@ -206,7 +258,10 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 		BadRequest(c, err)
 		return
 	}
-	h.replaceUserRoles(u.ID, in.RoleIDs)
+	if err := h.replaceUserRoles(c, u.ID, u.TenantID, in.RoleIDs); err != nil {
+		BadRequest(c, err)
+		return
+	}
 	u.PasswordHash = ""
 	OK(c, u)
 }
@@ -274,7 +329,10 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 		return
 	}
 	if in.RoleIDs != nil {
-		h.replaceUserRoles(u.ID, in.RoleIDs)
+		if err := h.replaceUserRoles(c, u.ID, u.TenantID, in.RoleIDs); err != nil {
+			BadRequest(c, err)
+			return
+		}
 	}
 	u.PasswordHash = ""
 	OK(c, u)
@@ -302,15 +360,48 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 	OK(c, gin.H{"deleted": id})
 }
 
-func (h *Handlers) replaceUserRoles(userID uint, roleIDs []uint) {
+func (h *Handlers) replaceUserRoles(c *gin.Context, userID, userTenantID uint, roleIDs []uint) error {
 	if roleIDs == nil {
-		return
+		return nil
+	}
+	p := h.principal(c)
+	seen := map[uint]bool{}
+	ids := make([]uint, 0, len(roleIDs))
+	for _, rid := range roleIDs {
+		if rid == 0 || seen[rid] {
+			continue
+		}
+		seen[rid] = true
+		ids = append(ids, rid)
+	}
+	if len(ids) == 0 {
+		h.db.Where("user_id = ?", userID).Delete(&model.UserRole{})
+		return nil
+	}
+	var roles []model.Role
+	if err := h.db.Where("id IN ?", ids).Find(&roles).Error; err != nil {
+		return err
+	}
+	if len(roles) != len(ids) {
+		return errors.New("角色不存在")
+	}
+	for _, r := range roles {
+		if r.Code == model.RoleSuperAdmin || r.TenantID == 0 {
+			if p == nil || !p.IsSuper {
+				return errors.New("不能绑定平台级角色")
+			}
+			continue
+		}
+		if r.TenantID != userTenantID {
+			return errors.New("不能绑定其他租户的角色")
+		}
 	}
 	h.db.Where("user_id = ?", userID).Delete(&model.UserRole{})
-	for _, rid := range roleIDs {
+	for _, rid := range ids {
 		h.db.Where("user_id = ? AND role_id = ?", userID, rid).
 			FirstOrCreate(&model.UserRole{}, model.UserRole{UserID: userID, RoleID: rid})
 	}
+	return nil
 }
 
 // ---------- 角色管理 ----------

@@ -85,11 +85,15 @@ func main() {
 	exec.Start(rootCtx)
 	go janitor(rootCtx, cfg)
 
+	readTimeout := time.Duration(orDefault(cfg.Server.ReadTimeout, 60)) * time.Second
+	writeTimeout := time.Duration(orDefault(cfg.Server.WriteTimeout, 120)) * time.Second
 	srv := &http.Server{
-		Addr:         cfg.Server.Addr,
-		Handler:      api.NewRouter(&api.Deps{Cfg: cfg, Handlers: handlers, Auth: authSvc, WebDir: cfg.Server.WebDir}),
-		ReadTimeout:  time.Duration(orDefault(cfg.Server.ReadTimeout, 60)) * time.Second,
-		WriteTimeout: time.Duration(orDefault(cfg.Server.WriteTimeout, 120)) * time.Second,
+		Addr:              cfg.Server.Addr,
+		Handler:           api.NewRouter(&api.Deps{Cfg: cfg, Handlers: handlers, Auth: authSvc, WebDir: cfg.Server.WebDir}),
+		ReadTimeout:       readTimeout,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       60 * time.Second,
 	}
 	go func() {
 		slog.Info("AutoMedic 服务启动", "addr", cfg.Server.Addr, "db", cfg.DB.Driver, "dsh", cfg.DSH.Bin)

@@ -126,11 +126,38 @@ func (h *Hub) Count(taskID uint) int {
 	return len(h.clients[taskID])
 }
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin:     func(r *http.Request) bool { return true },
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	Subprotocols:    []string{"automedic"},
+func originAllowed(origin, host string, allow []string) bool {
+	if origin == "" {
+		return true
+	}
+	if origin == "http://"+host || origin == "https://"+host {
+		return true
+	}
+	for _, a := range allow {
+		if a == origin {
+			return true
+		}
+	}
+	return false
+}
+
+func NewUpgrader(allowOrigins []string) websocket.Upgrader {
+	allow := append([]string(nil), allowOrigins...)
+	return websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return originAllowed(r.Header.Get("Origin"), r.Host, allow)
+		},
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		Subprotocols:    []string{"automedic"},
+	}
+}
+
+var upgrader = NewUpgrader(nil)
+
+// SetAllowedOrigins 收敛 WS Origin。空列表表示仅同源。
+func SetAllowedOrigins(origins []string) {
+	upgrader = NewUpgrader(origins)
 }
 
 // ServeTask 处理 /ws/tasks/:id 订阅
@@ -140,8 +167,8 @@ func (h *Hub) ServeTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
 		return
 	}
-	// 支持通过 WebSocket 子协议传递 JWT：Sec-WebSocket-Protocol: automedic.<token>
-	// 避免 token 出现在 URL query（会进入访问日志）。缺失时保留 ?token= 回退路径。
+	// 子协议里的 automedic.<jwt> 在 Upgrade 前改写成 automedic，避免把令牌当协商结果回写。
+	// 鉴权已由路由 Middleware 从同一头读取，此处不再接受 ?token=。
 	if sub := c.Request.Header.Get("Sec-WebSocket-Protocol"); sub != "" {
 		var protocols []string
 		for _, part := range strings.Split(sub, ",") {

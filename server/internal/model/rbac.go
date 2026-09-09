@@ -264,6 +264,8 @@ func tenantBusinessPermissions() []string {
 	skip := map[string]bool{
 		PermTenantRead: true, PermTenantCreate: true, PermTenantUpdate: true, PermTenantDelete: true,
 		PermModelUpdate: true,
+		// 可改 command_template / release_hook / dsh.bin，不得给租户默认
+		PermSettingsUpdate: true,
 	}
 	out := make([]string, 0, len(PermissionCatalog))
 	for _, p := range PermissionCatalog {

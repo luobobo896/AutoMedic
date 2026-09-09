@@ -76,6 +76,7 @@ func (h *Handlers) CreateProject(c *gin.Context) {
 	if p.FixMode == "" {
 		p.FixMode = model.FixModeSemi
 	}
+	p.ReleaseHook = "" // 发布钩子仅配置文件可改，忽略 Web 写入
 	p.TenantID = h.tenant(c)
 	if err := h.tdb(c).Create(&p).Error; err != nil {
 		BadRequest(c, err)
@@ -120,7 +121,7 @@ func (h *Handlers) UpdateProject(c *gin.Context) {
 	}
 	if !h.saveUpdates(c, h.tdb(c), &p,
 		"name", "description", "fix_mode", "default_model_id", "default_review_model_id",
-		"release_hook", "enabled", "context") {
+		"enabled", "context") {
 		return
 	}
 	OK(c, p)

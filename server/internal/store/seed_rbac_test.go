@@ -74,3 +74,13 @@ func TestEnsureRoleDoesNotOverwriteExistingPerms(t *testing.T) {
 		t.Fatalf("ensureRole 不应覆盖已配置权限，实际 %v", codes)
 	}
 }
+
+func TestSeedRBACRejectsDefaultPasswordInRelease(t *testing.T) {
+	db := isolatedDB(t)
+	cfg := config.Default()
+	cfg.Server.Mode = "release"
+	cfg.Auth.BootstrapAdmin.Password = "admin123"
+	if err := SeedRBAC(db, cfg); err == nil {
+		t.Fatal("release 模式应拒绝默认引导口令")
+	}
+}

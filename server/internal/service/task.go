@@ -39,14 +39,18 @@ type Executor struct {
 }
 
 func NewExecutor(db *gorm.DB, cfg *config.Config, crypt *crypto.Service, hub *ws.Hub) *Executor {
-	gitm := git.NewManager(cfg.Git.Bin, cfg.Git.WorkspaceRoot, cfg.Git.Depth, cfg.Git.ReuseWorkspace,
-		cfg.Git.BranchPrefix, cfg.Git.AuthorName, cfg.Git.AuthorEmail)
 	e := &Executor{
-		db: db, cfg: cfg, gitm: gitm, dshr: dsh.NewRunner(&cfg.DSH), crypt: crypt, hub: hub,
+		db: db, cfg: cfg, dshr: dsh.NewRunner(&cfg.DSH), crypt: crypt, hub: hub,
 		queue: make(chan uint, 1024), limit: 4, cancel: map[uint]context.CancelFunc{},
 		repoLocks: map[uint]*sync.Mutex{},
 	}
+	e.gitm = e.gitMgr()
 	return e
+}
+
+func (e *Executor) gitMgr() *git.Manager {
+	g := e.cfg.Git
+	return git.NewManager(g.Bin, g.WorkspaceRoot, g.Depth, g.ReuseWorkspace, g.BranchPrefix, g.AuthorName, g.AuthorEmail)
 }
 
 // Start 启动 worker 池与待处理任务扫描
@@ -85,9 +89,17 @@ func (e *Executor) scanner(ctx context.Context) {
 			for _, id := range ids {
 				e.Enqueue(id)
 			}
-			// 清理超时的 running 任务（进程重启导致）
+			timeout := time.Duration(e.cfg.DSH.TimeoutSec+300) * time.Second
+			if timeout < 5*time.Minute {
+				timeout = 5 * time.Minute
+			}
+			var stale []model.Task
+			e.db.Select("id").Where("status = ? AND updated_at < ?", model.TaskStatusRunning, time.Now().Add(-timeout)).Find(&stale)
+			for _, t := range stale {
+				e.Cancel(t.ID)
+			}
 			e.db.Model(&model.Task{}).
-				Where("status = ? AND updated_at < ?", model.TaskStatusRunning, time.Now().Add(-2*time.Hour)).
+				Where("status = ? AND updated_at < ?", model.TaskStatusRunning, time.Now().Add(-timeout)).
 				Updates(map[string]any{"status": model.TaskStatusFailed, "error_msg": "执行超时或进程重启，任务中断"})
 		}
 	}
@@ -269,7 +281,7 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 		ProjectKey: project.Key, RepoID: repo.ID, RepoName: repo.Name,
 		URL: repo.URL, Branch: repo.Branch, Auth: auth,
 	}
-	wsDir, err := e.gitm.Prepare(ctx, spec, task.ID, sink)
+	wsDir, err := e.gitMgr().Prepare(ctx, spec, task.ID, sink)
 	if err != nil {
 		res.Status, res.ErrMsg, res.Err = model.TaskStatusFailed, "工作区准备失败: "+err.Error(), err
 		sink("stderr", "[automedic] "+res.ErrMsg)
@@ -285,7 +297,9 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 	}
 	instruction := buildInstruction(&project, &repo, extra)
 	if err := e.dshr.WriteInstruction(wsDir.Dir, instruction); err != nil {
-		slog.Warn("write instruction failed", "err", err)
+		res.Status, res.ErrMsg, res.Err = model.TaskStatusFailed, "写入指令文件失败: "+err.Error(), err
+		sink("stderr", "[automedic] "+res.ErrMsg)
+		return res
 	}
 	taskText := dsh.BuildTaskText(dsh.BuildContext{
 		Project: &project, Repo: &repo, Event: task.Event, Rule: task.Rule,
@@ -305,6 +319,11 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 	if rr != nil {
 		res.ExitCode, res.Cmd = rr.ExitCode, rr.Command
 		res.Summary, res.Diagnosis, res.ChangedFiles = rr.Summary, rr.Diagnosis, rr.ChangedFiles
+	}
+	if ctx.Err() != nil {
+		res.Status, res.ErrMsg, res.Err = model.TaskStatusCancelled, "任务已取消", ctx.Err()
+		sink("sys", "[automedic] 任务已取消，跳过提交推送")
+		return res
 	}
 	if runErr != nil && rr == nil {
 		res.Status, res.ErrMsg, res.Err = model.TaskStatusFailed, "dsh 执行失败: "+runErr.Error(), runErr
@@ -343,6 +362,12 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 		res.NeedConfirm = true
 		res.Status = model.TaskStatusConfirming
 		sink("sys", "[automedic] 半自动模式：已生成补丁，等待人工确认后再提交推送")
+		return res
+	}
+
+	if ctx.Err() != nil {
+		res.Status, res.ErrMsg, res.Err = model.TaskStatusCancelled, "任务已取消", ctx.Err()
+		sink("sys", "[automedic] 任务已取消，跳过提交推送")
 		return res
 	}
 
@@ -413,12 +438,8 @@ func (e *Executor) finalize(ctx context.Context, task *model.Task, wsDir *git.Wo
 	}
 	sink("sys", "[git] 已推送 "+wsDir.Branch)
 
-	// 发布钩子
+	// 发布钩子仅来自配置文件 git.release_hook，忽略项目字段（Web 曾可写，历史值不再执行）。
 	hook := strings.TrimSpace(e.cfg.Git.ReleaseHook)
-	var project model.Project
-	if e.db.First(&project, task.ProjectID).Error == nil && strings.TrimSpace(project.ReleaseHook) != "" {
-		hook = strings.TrimSpace(project.ReleaseHook)
-	}
 	if hook != "" {
 		fr.stage = "release"
 		e.db.Model(&model.Task{}).Where("id = ?", task.ID).Update("stage", "release")
@@ -435,16 +456,28 @@ func (e *Executor) finalize(ctx context.Context, task *model.Task, wsDir *git.Wo
 
 // Confirm 人工确认：提交并推送（半自动模式）
 func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note string) error {
-	var task model.Task
-	if err := e.db.Preload("Event").Preload("Rule").First(&task, taskID).Error; err != nil {
-		return err
+	// 原子抢占：待确认，或失败但已有补丁/提交/工作区可重试推送。抢占后 status=running，
+	// 不可再按 CanResumeFinalize(当前行) 判断——那会把 confirming 误判为不可 resume。
+	claim := e.db.Model(&model.Task{}).
+		Where("id = ?", taskID).
+		Where("(status = ?) OR (status = ? AND (NULLIF(patch,'') IS NOT NULL OR NULLIF(fix_commit,'') IS NOT NULL OR NULLIF(workspace,'') IS NOT NULL))",
+			model.TaskStatusConfirming, model.TaskStatusFailed).
+		Updates(map[string]any{"status": model.TaskStatusRunning, "error_msg": ""})
+	if claim.Error != nil {
+		return claim.Error
 	}
-	if !CanResumeFinalize(task) {
+	if claim.RowsAffected == 0 {
 		return errors.New("任务不在待确认或可重试推送状态")
 	}
-	e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
-		"status": model.TaskStatusRunning, "error_msg": "",
-	})
+	var task model.Task
+	if err := e.db.Preload("Event").Preload("Rule").Preload("Repo").Preload("Project").First(&task, taskID).Error; err != nil {
+		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
+			"status": model.TaskStatusFailed, "error_msg": err.Error(),
+		})
+		return err
+	}
+	unlock := e.lockRepo(task.RepoID)
+	defer unlock()
 	e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: string(model.TaskStatusRunning), Stage: task.Stage})
 	lw := NewLogWriter(e.db, e.hub, taskID)
 	defer lw.Close()
@@ -459,6 +492,22 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 	}
 	defer wsDir.Cleanup()
 
+	failConfirm := func(err error, stage string) error {
+		if err == nil {
+			return nil
+		}
+		fail := map[string]any{"status": model.TaskStatusFailed, "error_msg": err.Error()}
+		if stage != "" {
+			fail["stage"] = stage
+		}
+		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(fail)
+		task.Status = model.TaskStatusFailed
+		task.ErrorMsg = err.Error()
+		SyncEventFromTask(e.db, &task)
+		e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: "failed", Stage: stage})
+		return err
+	}
+
 	changed, _ := wsDir.ChangedFiles(ctx)
 	if len(changed) == 0 {
 		head, _ := wsDir.Head(ctx)
@@ -466,10 +515,10 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 			sink("sys", "[git] 工作区已提交，跳过 commit，继续推送")
 		} else if strings.TrimSpace(task.Patch) != "" && task.Workspace != "" {
 			if err := applyPatchFile(ctx, e.cfg.Git.Bin, wsDir.Dir, task.ID, task.Patch, sink); err != nil {
-				return err
+				return failConfirm(err, task.Stage)
 			}
 		} else {
-			return errors.New("工作区无变更且无本地提交，无法推送")
+			return failConfirm(errors.New("工作区无变更且无本地提交，无法推送"), task.Stage)
 		}
 	}
 
@@ -531,9 +580,10 @@ func (e *Executor) Reject(ctx context.Context, taskID uint, operator, note strin
 
 // ensureWorkspace 确认时复用已有工作区；若丢失则重建并应用已保存补丁
 func (e *Executor) ensureWorkspace(ctx context.Context, task *model.Task, sink execx.Sink) (*git.Workspace, error) {
+	gitm := e.gitMgr()
 	if task.Workspace != "" {
 		if _, err := os.Stat(filepath.Join(task.Workspace, ".git")); err == nil {
-			return e.gitm.OpenWorkspace(task.Workspace, task.Branch), nil
+			return gitm.OpenWorkspace(task.Workspace, task.Branch), nil
 		}
 	}
 	var repo model.Repository
@@ -550,7 +600,7 @@ func (e *Executor) ensureWorkspace(ctx context.Context, task *model.Task, sink e
 		ProjectKey: project.Key, RepoID: repo.ID, RepoName: repo.Name,
 		URL: repo.URL, Branch: repo.Branch, Auth: e.resolveAuth(&repo, sink),
 	}
-	wsDir, err := e.gitm.Prepare(ctx, spec, task.ID, sink)
+	wsDir, err := gitm.Prepare(ctx, spec, task.ID, sink)
 	if err != nil {
 		return nil, err
 	}

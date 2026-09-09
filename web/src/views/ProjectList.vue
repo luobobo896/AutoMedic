@@ -98,8 +98,8 @@
           <el-input v-model="form.name" placeholder="例如：订单系统" maxlength="128" />
         </el-form-item>
         <el-form-item label="标识 Key" prop="key">
-          <el-input v-model="form.key" placeholder="shop-api" />
-          <div class="am-field-help">英文、数字、- 或 _，全局唯一，创建后不要改。</div>
+          <el-input v-model="form.key" placeholder="shop-api" :disabled="!!form.id" />
+          <div class="am-field-help">英文、数字、- 或 _，全局唯一，创建后不可改。</div>
         </el-form-item>
         <el-form-item label="修复模式">
           <el-radio-group v-model="form.fix_mode" class="am-seg">
@@ -130,17 +130,13 @@
               <el-input v-model="form.context" type="textarea" :rows="4"
                 placeholder="项目背景、核心链路、技术栈；dsh 用它理解业务语义、定位代码" />
             </el-form-item>
-            <el-form-item label="发布钩子">
-              <el-input v-model="form.release_hook" placeholder="推送成功后在仓库目录执行，留空用系统设置" />
-              <div class="am-field-help">覆盖系统设置 git.release_hook；不需要发布动作就留空。</div>
-            </el-form-item>
             <el-form-item label="描述"><el-input v-model="form.description" /></el-form-item>
           </el-collapse-item>
         </el-collapse>
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" @click="submit">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -156,6 +152,7 @@ const router = useRouter()
 const list = ref([])
 const total = ref(0)
 const loading = ref(false)
+const saving = ref(false)
 const dialog = ref(false)
 const models = ref([])
 const formRef = ref(null)
@@ -240,7 +237,6 @@ function projectPayload(f) {
     fix_mode: f.fix_mode || 'semi',
     default_model_id: f.default_model_id || null,
     default_review_model_id: f.default_review_model_id || null,
-    release_hook: f.release_hook || '',
     enabled: f.enabled !== false,
     context: f.context || ''
   }
@@ -249,14 +245,20 @@ function projectPayload(f) {
 async function submit() {
   const ok = await formRef.value.validate().catch(() => false)
   if (!ok) return
+  if (saving.value) return
+  saving.value = true
   const isEdit = !!form.value.id
   const payload = projectPayload(form.value)
   let newId = 0
-  if (isEdit) {
-    await updateProject(form.value.id, payload)
-  } else {
-    const r = await createProject(payload)
-    newId = r?.data?.id || 0
+  try {
+    if (isEdit) {
+      await updateProject(form.value.id, payload)
+    } else {
+      const r = await createProject(payload)
+      newId = r?.data?.id || 0
+    }
+  } finally {
+    saving.value = false
   }
   dialog.value = false
   await load()

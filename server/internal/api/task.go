@@ -181,14 +181,14 @@ func (h *Handlers) CancelTask(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
-	if !h.exec.Cancel(id) {
-		// 未在执行中，直接置为已取消
-		if err := h.tdb(c).Model(&model.Task{}).Where("id = ? AND status IN ?", id,
-			[]model.TaskStatus{model.TaskStatusPending, model.TaskStatusRunning}).
-			Updates(map[string]any{"status": model.TaskStatusCancelled, "stage": "cancelled", "finished_at": time.Now()}).Error; err != nil {
-			ServerError(c, err)
-			return
-		}
+	h.exec.Cancel(id)
+	// Cancel() 只发取消信号；无论进程是否还在跑，待执行/执行中的任务都必须落库 cancelled，
+	// 否则 run 虽会跳过 finalize，列表仍显示 running。
+	if err := h.tdb(c).Model(&model.Task{}).Where("id = ? AND status IN ?", id,
+		[]model.TaskStatus{model.TaskStatusPending, model.TaskStatusRunning}).
+		Updates(map[string]any{"status": model.TaskStatusCancelled, "stage": "cancelled", "finished_at": time.Now()}).Error; err != nil {
+		ServerError(c, err)
+		return
 	}
 	var t model.Task
 	if err := h.tdb(c).First(&t, id).Error; err == nil {

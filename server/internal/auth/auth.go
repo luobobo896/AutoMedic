@@ -350,9 +350,13 @@ func bearerToken(c *gin.Context) string {
 	if strings.HasPrefix(strings.ToLower(h), "bearer ") {
 		return strings.TrimSpace(h[7:])
 	}
-	// WebSocket 等场景无法设置请求头时允许 query 传参
-	if v := c.Query("token"); v != "" {
-		return v
+	if sub := c.GetHeader("Sec-WebSocket-Protocol"); sub != "" {
+		for _, part := range strings.Split(sub, ",") {
+			part = strings.TrimSpace(part)
+			if strings.HasPrefix(part, "automedic.") {
+				return strings.TrimPrefix(part, "automedic.")
+			}
+		}
 	}
 	return ""
 }

@@ -77,8 +77,18 @@ func (h *Handlers) Overview(c *gin.Context) {
 	})
 }
 
-// ServeTaskWS 任务终端日志订阅
+// ServeTaskWS 任务终端日志订阅。鉴权与权限在路由中间件完成；此处再校验任务归属。
 func (h *Handlers) ServeTaskWS(c *gin.Context) {
+	id, ok := ParseID(c, "id")
+	if !ok {
+		Fail(c, 400, "id 非法")
+		return
+	}
+	var owned model.Task
+	if err := h.tdb(c).Select("id").First(&owned, id).Error; err != nil {
+		NotFound(c, "任务不存在")
+		return
+	}
 	h.hub.ServeTask(c)
 }
 
@@ -118,36 +128,30 @@ func (h *Handlers) GetSettings(c *gin.Context) {
 	})
 }
 
-// UpdateSettings 更新运行时设置（仅内存生效，重启后回到配置文件/环境变量的值；持久化待实现）
+// UpdateSettings 更新运行时设置（仅内存生效，重启后回到配置文件/环境变量的值；持久化待实现）。
+// 可执行入口（bin / command_template / use_shell / env / release_hook / workspace_root）只能改配置文件，Web 写入一律忽略。
 func (h *Handlers) UpdateSettings(c *gin.Context) {
 	h.settingsMu.Lock()
 	defer h.settingsMu.Unlock()
 	var body struct {
 		DSH *struct {
-			Bin             *string  `json:"bin"`
-			Home            *string  `json:"home"`
-			TimeoutSec      *int     `json:"timeout_sec"`
-			PermissionMode  *string  `json:"permission_mode"`
-			CommandTemplate *string  `json:"command_template"`
-			PatchTemplate   *string  `json:"patch_template"`
-			UseShell        *bool    `json:"use_shell"`
-			Env             []string `json:"env"`
+			Home           *string `json:"home"`
+			TimeoutSec     *int    `json:"timeout_sec"`
+			PermissionMode *string `json:"permission_mode"`
+			PatchTemplate  *string `json:"patch_template"`
 		} `json:"dsh"`
 		OCR *struct {
-			Bin        *string `json:"bin"`
-			TimeoutSec *int    `json:"timeout_sec"`
-			UseDefault *bool   `json:"use_default"`
-			ModelID    *uint   `json:"model_id"`
+			TimeoutSec *int  `json:"timeout_sec"`
+			UseDefault *bool `json:"use_default"`
+			ModelID    *uint `json:"model_id"`
 		} `json:"ocr"`
 		Git *struct {
-			WorkspaceRoot  *string `json:"workspace_root"`
 			Depth          *int    `json:"depth"`
 			ReuseWorkspace *bool   `json:"reuse_workspace"`
 			BranchPrefix   *string `json:"branch_prefix"`
 			AuthorName     *string `json:"author_name"`
 			AuthorEmail    *string `json:"author_email"`
 			AutoPush       *bool   `json:"auto_push"`
-			ReleaseHook    *string `json:"release_hook"`
 			KeepDays       *int    `json:"keep_days"`
 		} `json:"git"`
 	}
@@ -156,23 +160,20 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 		return
 	}
 	if body.DSH != nil {
-		setStr(&h.cfg.DSH.Bin, body.DSH.Bin)
 		setStr(&h.cfg.DSH.Home, body.DSH.Home)
-		setStr(&h.cfg.DSH.PermissionMode, body.DSH.PermissionMode)
-		setStr(&h.cfg.DSH.CommandTemplate, body.DSH.CommandTemplate)
 		setStr(&h.cfg.DSH.PatchTemplate, body.DSH.PatchTemplate)
 		if body.DSH.TimeoutSec != nil {
 			h.cfg.DSH.TimeoutSec = *body.DSH.TimeoutSec
 		}
-		if body.DSH.UseShell != nil {
-			h.cfg.DSH.UseShell = *body.DSH.UseShell
-		}
-		if body.DSH.Env != nil {
-			h.cfg.DSH.Env = body.DSH.Env
+		if body.DSH.PermissionMode != nil {
+			if *body.DSH.PermissionMode != "workspace-write" {
+				BadRequest(c, "权限模式仅允许 workspace-write")
+				return
+			}
+			h.cfg.DSH.PermissionMode = "workspace-write"
 		}
 	}
 	if body.OCR != nil {
-		setStr(&h.cfg.OCR.Bin, body.OCR.Bin)
 		if body.OCR.TimeoutSec != nil {
 			h.cfg.OCR.TimeoutSec = *body.OCR.TimeoutSec
 		}
@@ -188,11 +189,9 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 		}
 	}
 	if body.Git != nil {
-		setStr(&h.cfg.Git.WorkspaceRoot, body.Git.WorkspaceRoot)
 		setStr(&h.cfg.Git.BranchPrefix, body.Git.BranchPrefix)
 		setStr(&h.cfg.Git.AuthorName, body.Git.AuthorName)
 		setStr(&h.cfg.Git.AuthorEmail, body.Git.AuthorEmail)
-		setStr(&h.cfg.Git.ReleaseHook, body.Git.ReleaseHook)
 		if body.Git.Depth != nil {
 			h.cfg.Git.Depth = *body.Git.Depth
 		}

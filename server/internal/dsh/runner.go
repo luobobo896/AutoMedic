@@ -439,29 +439,62 @@ func (r *Runner) WriteInstruction(workspace, content string) error {
 		created = append(created, name)
 	}
 	if len(created) > 0 {
-		_ = os.MkdirAll(filepath.Join(workspace, ".automedic"), 0o755)
-		b, _ := json.Marshal(created)
-		_ = os.WriteFile(filepath.Join(workspace, ".automedic", "managed-files.json"), b, 0o644)
+		dir := filepath.Join(workspace, ".automedic")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		b, err := json.Marshal(created)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "managed-files.json"), b, 0o644); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// CleanupArtifacts 提交前移除 dsh 产物目录与平台写入的指令文件
+func (r *Runner) managedInstructionNames() []string {
+	names := []string{"AGENTS.md"}
+	if r != nil && r.cfg != nil && r.cfg.InstructionFile != "" {
+		names = append([]string{r.cfg.InstructionFile}, names...)
+	} else {
+		names = append([]string{"AUTOMEDIC.md"}, names...)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if n == "" || strings.Contains(n, "..") || strings.ContainsAny(n, `/\`) {
+			continue
+		}
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out
+}
+
+// CleanupArtifacts 提交前移除 dsh 产物目录与平台写入的指令文件。
+// 有清单则按清单删；无清单时按固定指令文件名删除（仅当文件存在，避免误删仓库自带文件的风险由 WriteInstruction 不覆盖保证）。
 func (r *Runner) CleanupArtifacts(workspace string) {
 	if workspace == "" {
 		return
 	}
+	files := r.managedInstructionNames()
 	manifest := filepath.Join(workspace, ".automedic", "managed-files.json")
 	if b, err := os.ReadFile(manifest); err == nil {
-		var files []string
-		if err := json.Unmarshal(b, &files); err == nil {
-			for _, f := range files {
-				if f == "" || strings.Contains(f, "..") {
-					continue
-				}
-				_ = os.Remove(filepath.Join(workspace, f))
-			}
+		var listed []string
+		if err := json.Unmarshal(b, &listed); err == nil && len(listed) > 0 {
+			files = listed
 		}
+	}
+	for _, f := range files {
+		if f == "" || strings.Contains(f, "..") || strings.ContainsAny(f, `/\`) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(workspace, f))
 	}
 	_ = os.RemoveAll(filepath.Join(workspace, ".automedic"))
 }

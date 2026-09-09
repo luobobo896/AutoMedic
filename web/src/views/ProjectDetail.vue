@@ -181,7 +181,7 @@
       <el-tab-pane label="投递令牌" name="tokens">
         <div class="am-card">
           <div class="am-toolbar">
-            <el-button type="primary" size="small" :icon="'Plus'" @click="createProjectToken">新建令牌</el-button>
+            <el-button type="primary" size="small" :icon="'Plus'" :loading="savingToken" @click="createProjectToken">新建令牌</el-button>
             <div class="am-flex-1" />
             <el-button size="small" :icon="'QuestionFilled'" @click="ingestGuide = true">怎么把告警送进来</el-button>
           </div>
@@ -197,7 +197,7 @@
                   告警源带着令牌 POST 进来，平台才知道事件属于本项目。
                 </div>
                 <div class="am-empty__actions">
-                  <el-button type="primary" size="small" :icon="'Plus'" @click="createProjectToken">新建令牌</el-button>
+                  <el-button type="primary" size="small" :icon="'Plus'" :loading="savingToken" @click="createProjectToken">新建令牌</el-button>
                   <el-button size="small" @click="ingestGuide = true">查看接入示例</el-button>
                 </div>
               </div>
@@ -270,15 +270,12 @@
 
             <div class="am-section">
               <div class="am-section__title">高级</div>
-              <div class="am-section__desc">推送成功后在仓库目录执行的命令，覆盖系统设置 git.release_hook。</div>
-              <el-form-item label="发布钩子">
-                <el-input v-model="form.release_hook" placeholder="留空则用系统设置" />
-              </el-form-item>
+              <div class="am-section__desc">发布钩子只能改配置文件 `git.release_hook`。</div>
               <el-form-item label="描述"><el-input v-model="form.description" /></el-form-item>
             </div>
 
             <el-form-item>
-              <el-button type="primary" @click="saveProject">保存</el-button>
+              <el-button type="primary" :loading="savingProject" @click="saveProject">保存</el-button>
             </el-form-item>
           </el-form>
         </div>
@@ -334,7 +331,7 @@
       </el-form>
       <template #footer>
         <el-button @click="repoDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveRepo">保存</el-button>
+        <el-button type="primary" :loading="savingRepo" @click="saveRepo">保存</el-button>
       </template>
     </el-dialog>
 
@@ -411,7 +408,7 @@
       </el-form>
       <template #footer>
         <el-button @click="ruleDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveRule">保存</el-button>
+        <el-button type="primary" :loading="savingRule" @click="saveRule">保存</el-button>
       </template>
     </el-dialog>
 
@@ -480,6 +477,10 @@ const route = useRoute()
 const id = ref(route.params.id)
 const detail = ref({})
 const loading = ref(false)
+const savingProject = ref(false)
+const savingRepo = ref(false)
+const savingRule = ref(false)
+const savingToken = ref(false)
 const tab = ref('repos')
 const models = ref([])
 const credentials = ref([])
@@ -659,7 +660,10 @@ async function load() {
 }
 
 async function saveRepo() {
+  if (savingRepo.value) return
+  savingRepo.value = true
   const f = repoForm.value
+  try {
   await createRepo({
     project_id: Number(id.value), name: f.name, url: f.url, branch: f.branch || 'main',
     language: f.language || '', code_paths: Array.isArray(f.code_paths) ? joinCSV(f.code_paths) : (f.code_paths || ''),
@@ -669,6 +673,9 @@ async function saveRepo() {
   ElMessage.success('已关联')
   repoDialog.value = false
   load()
+  } finally {
+    savingRepo.value = false
+  }
 }
 
 function openTree(row) {
@@ -717,7 +724,10 @@ function editRule(row) {
 }
 
 async function saveRule() {
+  if (savingRule.value) return
+  savingRule.value = true
   const f = ruleForm.value
+  try {
   const payload = {
     project_id: Number(id.value), name: f.name, enabled: f.enabled !== false, priority: f.priority || 0,
     levels: joinCSV(f.levels), sources: joinCSV(f.sources), keywords: joinCSV(f.keywords),
@@ -733,6 +743,9 @@ async function saveRule() {
   ElMessage.success('已保存')
   ruleDialog.value = false
   load()
+  } finally {
+    savingRule.value = false
+  }
 }
 
 async function removeRule(row) {
@@ -743,11 +756,17 @@ async function removeRule(row) {
 }
 
 async function createProjectToken() {
+  if (savingToken.value) return
+  savingToken.value = true
+  try {
   const r = await createToken({ project_id: Number(id.value), name: 'collector-' + Date.now().toString().slice(-6) })
   // 明文只出现一次：用可复制的面板代替纯文本弹窗，顺带给出接入示例入口
   tokenPlain.value = r.data.plain_token
   tokenDialog.value = true
   load()
+  } finally {
+    savingToken.value = false
+  }
 }
 
 async function toggleToken(row) {
@@ -763,15 +782,21 @@ async function removeToken(row) {
 }
 
 async function saveProject() {
+  if (savingProject.value) return
+  savingProject.value = true
   const f = form.value
-  await updateProject(id.value, {
-    name: f.name, description: f.description || '', fix_mode: f.fix_mode,
-    default_model_id: f.default_model_id || null,
-    default_review_model_id: f.default_review_model_id || null,
-    release_hook: f.release_hook || '', enabled: f.enabled !== false, context: f.context || ''
-  })
-  ElMessage.success('已保存')
-  load()
+  try {
+    await updateProject(id.value, {
+      name: f.name, description: f.description || '', fix_mode: f.fix_mode,
+      default_model_id: f.default_model_id || null,
+      default_review_model_id: f.default_review_model_id || null,
+      enabled: f.enabled !== false, context: f.context || ''
+    })
+    ElMessage.success('已保存')
+    await load()
+  } finally {
+    savingProject.value = false
+  }
 }
 
 watch(() => route.params.id, (v) => { id.value = v; load() })

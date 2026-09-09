@@ -351,13 +351,18 @@ func (m *Manager) authEnv(spec *RepoSpec) (string, map[string]string, func(), er
 		if err != nil {
 			return "", nil, noop, err
 		}
-		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes", keyFile)
+		khDir := filepath.Join(m.Root, ".ssh")
+		_ = os.MkdirAll(khDir, 0o700)
+		knownHosts := filepath.Join(khDir, "known_hosts")
+		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=%s -o BatchMode=yes",
+			keyFile, knownHosts)
 		if auth.Passphrase != "" {
-			askFile, c2, err := writeTempScript("am-askpass-", fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n*assphrase*) echo '%s';;\nesac\nexit 0\n", auth.Passphrase))
+			askFile, c2, err := writeTempScript("am-askpass-", "#!/bin/sh\ncase \"$1\" in\n*assphrase*) printf %s \"$AUTOMEDIC_SSH_PASSPHRASE\"; printf '\\n';;\nesac\nexit 0\n")
 			if err != nil {
 				cleanup()
 				return "", nil, noop, err
 			}
+			env["AUTOMEDIC_SSH_PASSPHRASE"] = auth.Passphrase
 			env["SSH_ASKPASS"] = askFile
 			env["SSH_ASKPASS_REQUIRE"] = "force"
 			env["DISPLAY"] = ":0"

@@ -8,6 +8,7 @@ import (
 	"github.com/automedic/automedic/internal/auth"
 	"github.com/automedic/automedic/internal/config"
 	"github.com/automedic/automedic/internal/model"
+	amws "github.com/automedic/automedic/internal/ws"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
@@ -40,6 +41,7 @@ func NewRouter(d *Deps) *gin.Engine {
 	// 千万不能用「AllowOriginFunc 恒 false」来表达不开放跨域：gin-cors 对带 Origin 头
 	// 且判定不通过的请求会直接 403，同源部署（浏览器 POST 同样带 Origin）也会被拒。
 	allowOrigins := d.Cfg.Server.AllowOrigins
+	amws.SetAllowedOrigins(allowOrigins)
 	if len(allowOrigins) > 0 {
 		r.Use(cors.New(cors.Config{
 			AllowOrigins:     allowOrigins,
@@ -198,9 +200,9 @@ func NewRouter(d *Deps) *gin.Engine {
 		ing.POST("/events/batch", h.IngestEventBatch)
 	}
 
-	// WebSocket：任务终端（支持 ?token= 传参）
+	// WebSocket：任务终端（子协议传 JWT；归属与权限在 handler 内再校验）
 	ws := r.Group("/ws")
-	ws.Use(d.Auth.Middleware())
+	ws.Use(d.Auth.Middleware(), auth.RequirePerm(model.PermTaskRead))
 	{
 		ws.GET("/tasks/:id", d.Handlers.ServeTaskWS)
 	}
