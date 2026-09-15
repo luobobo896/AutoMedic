@@ -26,6 +26,22 @@ log()  { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
 die()  { printf '[%s] ERROR %s\n' "$(date '+%F %T')" "$*" >&2; exit 1; }
 skip() { log "SKIP  $1（已是最新：$2）"; }
 
+# 解析全局 CLI 的绝对路径。npm 全局包自更新（如 ocr 运行时会拉新版）会短暂
+# 删除并重建 /usr/bin 下的软链，此时 command -v 会瞬时为空 —— 直接 die 会让
+# 整个发布失败，所以这里重试几秒再判定。
+resolve_bin() {
+  local name="$1" i path
+  for i in 1 2 3 4 5; do
+    path="$(command -v "$name" 2>/dev/null || true)"
+    if [[ -n "$path" ]]; then
+      printf '%s' "$path"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 [[ "$(id -u)" -eq 0 ]] || die "必须以 root 运行"
 [[ -d "$SRC/.git" ]] || die "源码目录不是 git 仓库: $SRC（应由 deploy-hk.sh 先 clone/fetch）"
 
@@ -232,8 +248,8 @@ EOF
 
 patch_runtime_config() {
   local dsh_bin ocr_bin node_dir
-  dsh_bin="$(command -v dsh || true)"
-  ocr_bin="$(command -v ocr || true)"
+  dsh_bin="$(resolve_bin dsh || true)"
+  ocr_bin="$(resolve_bin ocr || true)"
   node_dir="$(dirname "$(command -v node)")"
   [[ -n "$dsh_bin" ]] || die "dsh 不在 PATH"
   [[ -n "$ocr_bin" ]] || die "ocr 不在 PATH"
@@ -382,10 +398,10 @@ main() {
     ensure_go
     ensure_npm_global "@deepseek-ai/dsh" "$DSH_VERSION"
     ensure_npm_global "@alibaba-group/open-code-review" "$OCR_VERSION"
-    command -v dsh >/dev/null || die "dsh 安装后仍不可执行"
-    command -v ocr >/dev/null || die "ocr 安装后仍不可执行"
-    log "dsh: $(command -v dsh) $(dsh --version 2>/dev/null || true)"
-    log "ocr: $(command -v ocr) $(ocr --version 2>/dev/null || true)"
+    resolve_bin dsh >/dev/null || die "dsh 安装后仍不可执行"
+    resolve_bin ocr >/dev/null || die "ocr 安装后仍不可执行"
+    log "dsh: $(resolve_bin dsh) $(dsh --version 2>/dev/null || true)"
+    log "ocr: $(resolve_bin ocr) $(ocr --version 2>/dev/null || true)"
     log "node: $(node -v)  npm: $(npm -v)  go: $(go version)  git: $(git --version)"
   else
     log "SKIP 依赖安装（--skip-deps）"
