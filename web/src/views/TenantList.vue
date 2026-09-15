@@ -14,8 +14,8 @@
           <span class="tenant-name">{{ t.name }}</span>
           <span class="am-pill am-mono">{{ t.key }}</span>
           <div class="am-flex-1" />
-          <el-button class="am-icon-btn" link @click="edit(t)"><el-icon><EditPen /></el-icon></el-button>
-          <el-button class="am-icon-btn am-icon-danger" link @click="remove(t)"><el-icon><Delete /></el-icon></el-button>
+          <el-button class="am-icon-btn" link :disabled="saving" @click="edit(t)"><el-icon><EditPen /></el-icon></el-button>
+          <el-button class="am-icon-btn am-icon-danger" link :disabled="saving" @click="remove(t)"><el-icon><Delete /></el-icon></el-button>
         </div>
         <div class="tenant-meta">
           <span class="am-pill">{{ t.user_count }} 用户</span>
@@ -53,7 +53,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" @click="submit">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -67,6 +67,7 @@ import { listTenants, createTenant, updateTenant, deleteTenant } from '@/api'
 
 const tenants = ref([])
 const dialog = ref(false)
+const saving = ref(false)
 const form = ref({})
 
 async function load() {
@@ -83,24 +84,32 @@ function edit(t) {
 }
 
 async function submit() {
-  const payload = {
-    name: form.value.name, key: form.value.key, remark: form.value.remark || '',
-    status: form.value.status || 'active', admin_username: form.value.admin_username,
-    admin_password: form.value.admin_password
-  }
-  if (form.value.id) await updateTenant(form.value.id, { name: payload.name, remark: payload.remark, status: payload.status })
-  else await createTenant(payload)
-  ElMessage.success('已保存')
-  dialog.value = false
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const payload = {
+      name: form.value.name, key: form.value.key, remark: form.value.remark || '',
+      status: form.value.status || 'active', admin_username: form.value.admin_username,
+      admin_password: form.value.admin_password
+    }
+    if (form.value.id) await updateTenant(form.value.id, { name: payload.name, remark: payload.remark, status: payload.status })
+    else await createTenant(payload)
+    ElMessage.success('已保存')
+    dialog.value = false
+    await load()
+  } finally { saving.value = false }
 }
 
 async function remove(t) {
-  const ok = await ElMessageBox.confirm(`确认删除租户「${t.name}」？租户下的用户与角色将一并删除。`, '警告', { type: 'warning' }).catch(() => false)
-  if (!ok) return
-  await deleteTenant(t.id)
-  ElMessage.success('已删除')
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const ok = await ElMessageBox.confirm(`确认删除租户「${t.name}」？租户下的用户与角色将一并删除。`, '警告', { type: 'warning' }).catch(() => false)
+    if (!ok) return
+    await deleteTenant(t.id)
+    ElMessage.success('已删除')
+    await load()
+  } finally { saving.value = false }
 }
 
 onMounted(load)

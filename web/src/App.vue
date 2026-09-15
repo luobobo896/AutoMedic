@@ -15,5 +15,5 @@ const isPublic = computed(() => !!route.meta?.public)
 </script>
 
 <style>
-.am-root { height: 100%; background: var(--am-bg, #161618); }
+.am-root { height: 100%; background: var(--am-bg); }
 </style>

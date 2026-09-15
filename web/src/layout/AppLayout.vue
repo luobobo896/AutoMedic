@@ -86,6 +86,7 @@ import { visibleMenus } from '@/router'
 import { changePassword, logout } from '@/api'
 import { useAuth } from '@/store/auth'
 import { useBreakpoint } from '@/composables/useBreakpoint'
+import { MQ } from '@/constants/breakpoints'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
@@ -97,7 +98,7 @@ const { isMobile, isTablet } = useBreakpoint()
 // 断点与 CSS 同源（constants/breakpoints.js）；跨越 1024px 时自动收起/展开，
 // 同带宽内的手动折叠不被覆盖。
 const compact = isMobile
-const collapsed = ref(window.innerWidth < 1024)
+const collapsed = ref(window.matchMedia(MQ.ltDesktop).matches)
 watch(
   () => isMobile.value || isTablet.value,
   (narrow) => { collapsed.value = narrow }
@@ -157,7 +158,7 @@ async function submitPassword() {
 </script>
 
 <style scoped>
-.layout { height: 100vh; overflow: hidden; position: relative; }
+.layout { height: 100vh; height: 100dvh; overflow: hidden; position: relative; }
 .layout > .el-container {
   flex: 1 1 0;
   min-width: 0;
@@ -195,11 +196,19 @@ async function submitPassword() {
 .header-left { display: flex; align-items: center; gap: 12px; }
 .header-left :deep(.el-button) { min-width: 44px; min-height: 44px; }
 .header-right { display: flex; align-items: center; gap: 12px; }
-.main { background: var(--am-bg); padding: 0; --el-main-padding: 0; overflow-x: hidden; overflow-y: auto; }
+.main {
+  background: var(--am-bg);
+  padding: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  --el-main-padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
 .main.main-fill {
   flex: 1 1 0;
   min-height: 0;
   height: calc(100vh - 56px);
+  height: calc(100dvh - 56px);
   display: flex;
   flex-direction: column;
   overflow: hidden;

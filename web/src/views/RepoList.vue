@@ -35,9 +35,9 @@
           <template #default="{ row }">
             <el-button link type="primary" @click="openTree(row)">目录树</el-button>
             <el-button link type="primary" @click="openReview(row)">审查</el-button>
-            <el-button link type="primary" @click="testConn(row)">测试</el-button>
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" @click="remove(row)">删除</el-button>
+            <el-button link type="primary" :loading="testingId === row.id" @click="testConn(row)">测试</el-button>
+            <el-button link type="primary" :disabled="saving" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" :disabled="saving" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -88,7 +88,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" @click="submit">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </template>
     </el-dialog>
 
@@ -112,6 +112,8 @@ const credentials = ref([])
 const models = ref([])
 const loading = ref(false)
 const dialog = ref(false)
+const saving = ref(false)
+const testingId = ref(0)
 const treeDrawer = ref(false)
 const treeRepo = ref(null)
 const reviewDrawer = ref(false)
@@ -156,12 +158,16 @@ function repoPayload(f) {
 }
 
 async function submit() {
-  const payload = repoPayload(form.value)
-  if (form.value.id) await updateRepo(form.value.id, payload)
-  else await createRepo(payload)
-  ElMessage.success('已保存')
-  dialog.value = false
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const payload = repoPayload(form.value)
+    if (form.value.id) await updateRepo(form.value.id, payload)
+    else await createRepo(payload)
+    ElMessage.success('已保存')
+    dialog.value = false
+    await load()
+  } finally { saving.value = false }
 }
 
 function openTree(row) {
@@ -174,16 +180,25 @@ function openReview(row) {
 }
 
 async function testConn(row) {
-  await testRepo(row.id)
-  ElMessage.success('连通性正常')
+  if (saving.value || testingId.value) return
+  testingId.value = row.id
+  saving.value = true
+  try {
+    await testRepo(row.id)
+    ElMessage.success('连通性正常')
+  } finally { testingId.value = 0; saving.value = false }
 }
 
 async function remove(row) {
-  const ok = await ElMessageBox.confirm(`确认删除仓库「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
-  if (!ok) return
-  await deleteRepo(row.id)
-  ElMessage.success('已删除')
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const ok = await ElMessageBox.confirm(`确认删除仓库「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+    if (!ok) return
+    await deleteRepo(row.id)
+    ElMessage.success('已删除')
+    await load()
+  } finally { saving.value = false }
 }
 
 onMounted(async () => {

@@ -67,6 +67,7 @@
               link
               type="primary"
               :disabled="!canReplay(row)"
+              :loading="replayingId === row.id"
               :title="replayHint(row)"
               @click="replay(row)"
             >重放</el-button>
@@ -137,6 +138,7 @@ const total = ref(0)
 const loading = ref(false)
 const drawer = ref(false)
 const detail = ref({})
+const replayingId = ref(0)
 const query = reactive({ page: 1, page_size: 20, project_id: '', status: '', level: '', keyword: '', days: 0 })
 
 async function load() {
@@ -170,12 +172,15 @@ function replayHint(row) {
 }
 
 async function replay(row) {
-  if (!canReplay(row)) return
-  const ok = await ElMessageBox.confirm('重放会按同一指纹重新走规则。已修复或修复中的事件不会再开任务。', '提示', { type: 'warning' }).catch(() => false)
-  if (!ok) return
-  const r = await replayEvent(row.id)
-  ElMessage.success(r.data?.reason || '已重放')
-  load()
+  if (!canReplay(row) || replayingId.value) return
+  replayingId.value = row.id
+  try {
+    const ok = await ElMessageBox.confirm('重放会按同一指纹重新走规则。已修复或修复中的事件不会再开任务。', '提示', { type: 'warning' }).catch(() => false)
+    if (!ok) return
+    const r = await replayEvent(row.id)
+    ElMessage.success(r.data?.reason || '已重放')
+    await load()
+  } finally { replayingId.value = 0 }
 }
 
 onMounted(async () => {

@@ -9,18 +9,22 @@
         {{ task.mode === 'auto' ? '全自动' : '半自动确认' }}
       </el-tag>
       <div class="am-flex-1" />
-      <el-button v-if="task.status === 'confirming'" type="success" :icon="'Check'" @click="confirmFix">确认修复并推送</el-button>
-      <el-button v-if="task.status === 'confirming'" type="danger" :icon="'Close'" @click="rejectFix">驳回</el-button>
+      <el-button v-if="task.status === 'confirming'" type="success" :icon="'Check'"
+        :loading="acting === 'confirm'" :disabled="!!acting" @click="confirmFix">确认修复并推送</el-button>
+      <el-button v-if="task.status === 'confirming'" type="danger" :icon="'Close'"
+        :disabled="!!acting" @click="rejectFix">驳回</el-button>
       <el-button
         v-if="showRetry"
         :type="canResumePush ? 'success' : 'primary'"
         :icon="canResumePush ? 'Upload' : 'RefreshRight'"
-        :disabled="!canRetry"
-        :aria-disabled="!canRetry"
+        :disabled="!canRetry || !!acting"
+        :loading="acting === 'retry'"
+        :aria-disabled="!canRetry || !!acting"
         :title="canRetry ? '' : (task.status === 'success' ? '任务已成功，无需重试' : '当前状态不能重试')"
         @click="canResumePush ? retryPushDo() : retryTaskDo()"
       >{{ canResumePush ? '重试推送' : '重试修复' }}</el-button>
-      <el-button v-if="['pending','running'].includes(task.status)" :icon="'CircleClose'" @click="cancelTaskDo">取消</el-button>
+      <el-button v-if="['pending','running'].includes(task.status)" :icon="'CircleClose'"
+        :loading="acting === 'cancel'" :disabled="!!acting" @click="cancelTaskDo">取消</el-button>
       <el-button :icon="'Refresh'" @click="loadAll" />
     </div>
 
@@ -158,11 +162,14 @@ const patchText = ref('')
 const booting = ref(true)
 const autoScroll = ref(true)
 const wsConnected = ref(false)
+// 写操作 in-flight 守卫：'' | 'confirm' | 'reject' | 'retry' | 'cancel'
+const acting = ref('')
 const termRef = ref()
 
 let ws = null
 let timer = null
 let wsRetryTimer = null
+let wsBackoff = 2000
 let unmounted = false
 let lastSeq = 0
 let logIndex = new Set()
@@ -247,16 +254,19 @@ function startWS() {
   try {
     ws = createTaskWS(taskId.value)
     if (!ws) { wsConnected.value = false; return }
-    ws.onopen = () => { wsConnected.value = true }
+    ws.onopen = () => { wsConnected.value = true; wsBackoff = 2000 }
     ws.onclose = () => {
       wsConnected.value = false
       ws = null
       if (!unmounted && !ended(task.value.status)) {
         clearTimeout(wsRetryTimer)
+        // 指数退避 2s→4s→8s…上限 30s，避免服务端不可用时每 2s 打一次握手（轮询仍兜底）
+        const delay = wsBackoff
+        wsBackoff = Math.min(wsBackoff * 2, 30000)
         wsRetryTimer = setTimeout(() => {
           wsRetryTimer = null
           if (!ws && !unmounted && !ended(task.value.status)) startWS()
-        }, 2000)
+        }, delay)
       }
     }
     ws.onerror = () => { wsConnected.value = false }
@@ -329,50 +339,74 @@ function copyLogs() {
 function copyPatch() { copyText(patchText.value) }
 
 async function confirmFix() {
-  const { value } = await ElMessageBox.prompt('确认后将提交代码、推送到远端并执行发布钩子', '人工确认', {
-    inputPlaceholder: '备注（可选）', inputValue: ''
-  }).catch(() => ({ value: null }))
-  if (value === null) return
-  await confirmTask(taskId.value, { operator: 'web', note: value })
-  ElMessage.success('已确认，正在提交推送')
-  setTimeout(() => loadAll({ silent: true }), 1500)
+  if (acting.value) return
+  acting.value = 'confirm'
+  try {
+    const { value } = await ElMessageBox.prompt('确认后将提交代码、推送到远端并执行发布钩子', '人工确认', {
+      inputPlaceholder: '备注（可选）', inputValue: ''
+    }).catch(() => ({ value: null }))
+    if (value === null) return
+    await confirmTask(taskId.value, { operator: 'web', note: value })
+    ElMessage.success('已确认，正在提交推送')
+    // 守卫保持到状态刷新完成，避免刷新窗口内再次点击重复提交/重复推送
+    await new Promise(done => setTimeout(done, 1500))
+    await loadAll({ silent: true })
+  } finally { acting.value = '' }
 }
 
 async function rejectFix() {
-  const { value } = await ElMessageBox.prompt('填写驳回原因', '驳回修复', {
-    inputPlaceholder: '如：定位不准，需人工介入', inputValue: ''
-  }).catch(() => ({ value: null }))
-  if (value === null) return
-  await rejectTask(taskId.value, { operator: 'web', note: value })
-  ElMessage.success('已驳回')
-  loadAll({ silent: true })
+  if (acting.value) return
+  acting.value = 'reject'
+  try {
+    const { value } = await ElMessageBox.prompt('填写驳回原因', '驳回修复', {
+      inputPlaceholder: '如：定位不准，需人工介入', inputValue: ''
+    }).catch(() => ({ value: null }))
+    if (value === null) return
+    await rejectTask(taskId.value, { operator: 'web', note: value })
+    ElMessage.success('已驳回')
+    await loadAll({ silent: true })
+  } finally { acting.value = '' }
 }
 
 async function retryPushDo() {
-  await retryTask(taskId.value)
-  ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
-  setTimeout(() => loadAll({ silent: true }), 800)
+  if (acting.value) return
+  acting.value = 'retry'
+  try {
+    await retryTask(taskId.value)
+    ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
+    await new Promise(done => setTimeout(done, 800))
+    await loadAll({ silent: true })
+  } finally { acting.value = '' }
 }
 
 async function retryTaskDo() {
-  const r = await retryTask(taskId.value)
-  if (r.data?.resume) {
-    ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
-    setTimeout(() => loadAll({ silent: true }), 800)
-    return
-  }
-  ElMessage.success('已创建重试任务 #' + r.data.id)
-  if (r.data?.id) {
-    await router.push('/tasks/' + r.data.id)
-    return
-  }
-  loadAll({ silent: true })
+  if (acting.value) return
+  acting.value = 'retry'
+  try {
+    const r = await retryTask(taskId.value)
+    if (r.data?.resume) {
+      ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
+      await new Promise(done => setTimeout(done, 800))
+      await loadAll({ silent: true })
+      return
+    }
+    ElMessage.success('已创建重试任务 #' + r.data.id)
+    if (r.data?.id) {
+      await router.push('/tasks/' + r.data.id)
+      return
+    }
+    await loadAll({ silent: true })
+  } finally { acting.value = '' }
 }
 
 async function cancelTaskDo() {
-  await cancelTask(taskId.value)
-  ElMessage.success('已取消')
-  loadAll({ silent: true })
+  if (acting.value) return
+  acting.value = 'cancel'
+  try {
+    await cancelTask(taskId.value)
+    ElMessage.success('已取消')
+    await loadAll({ silent: true })
+  } finally { acting.value = '' }
 }
 
 watch(autoScroll, (v) => { if (v) scrollBottom() })

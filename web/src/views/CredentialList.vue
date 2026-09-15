@@ -37,13 +37,13 @@
         </el-table-column>
         <el-table-column label="启用" width="80">
           <template #default="{ row }">
-            <el-switch v-model="row.enabled" size="small" @change="v => toggle(row, v)" />
+            <el-switch v-model="row.enabled" size="small" :disabled="saving" @change="v => toggle(row, v)" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" @click="remove(row)">删除</el-button>
+            <el-button link type="primary" :disabled="saving" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" :disabled="saving" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -74,7 +74,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" @click="submit">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </template>
     </el-dialog>
 
@@ -109,6 +109,7 @@ const usages = ref([])
 const loading = ref(false)
 const dialog = ref(false)
 const usageDrawer = ref(false)
+const saving = ref(false)
 const form = ref({ type: 'ssh_key', enabled: true })
 
 async function load() {
@@ -129,21 +130,29 @@ function openEdit(row) {
 }
 
 async function submit() {
-  const payload = {
-    name: form.value.name, type: form.value.type, username: form.value.username || '',
-    description: form.value.description || '', enabled: form.value.enabled !== false,
-    secret: form.value.secret || '', passphrase: form.value.passphrase || ''
-  }
-  if (form.value.id) await updateCredential(form.value.id, payload)
-  else await createCredential(payload)
-  ElMessage.success('已保存')
-  dialog.value = false
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const payload = {
+      name: form.value.name, type: form.value.type, username: form.value.username || '',
+      description: form.value.description || '', enabled: form.value.enabled !== false,
+      secret: form.value.secret || '', passphrase: form.value.passphrase || ''
+    }
+    if (form.value.id) await updateCredential(form.value.id, payload)
+    else await createCredential(payload)
+    ElMessage.success('已保存')
+    dialog.value = false
+    await load()
+  } finally { saving.value = false }
 }
 
 async function toggle(row, v) {
-  await updateCredential(row.id, { enabled: v })
-  ElMessage.success('已更新')
+  if (saving.value) return
+  saving.value = true
+  try {
+    await updateCredential(row.id, { enabled: v })
+    ElMessage.success('已更新')
+  } finally { saving.value = false }
 }
 
 async function openUsages(row) {
@@ -153,11 +162,15 @@ async function openUsages(row) {
 }
 
 async function remove(row) {
-  const ok = await ElMessageBox.confirm(`确认删除凭证「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
-  if (!ok) return
-  await deleteCredential(row.id)
-  ElMessage.success('已删除')
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const ok = await ElMessageBox.confirm(`确认删除凭证「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+    if (!ok) return
+    await deleteCredential(row.id)
+    ElMessage.success('已删除')
+    await load()
+  } finally { saving.value = false }
 }
 
 onMounted(load)

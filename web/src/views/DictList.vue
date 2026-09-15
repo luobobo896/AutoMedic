@@ -46,7 +46,7 @@
             <el-table-column prop="sort" label="排序" width="80" />
             <el-table-column label="启用" width="80">
               <template #default="{ row }">
-                <el-switch v-model="row.enabled" size="small" @change="v => toggle(row, v)" />
+                <el-switch v-model="row.enabled" size="small" :disabled="saving" @change="v => toggle(row, v)" />
               </template>
             </el-table-column>
             <el-table-column label="操作" width="200">
@@ -87,7 +87,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" @click="submit">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -102,6 +102,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const dict = useDicts()
 const currentGroup = ref('log_level')
 const dialog = ref(false)
+const saving = ref(false)
 const form = ref({})
 
 const visibleGroups = computed(() => (dict.groups || []).filter(g => !g.parent_group))
@@ -165,41 +166,53 @@ function extraOf(f) {
 }
 
 async function submit() {
-  const extra = extraOf(form.value)
-  const payload = { label: form.value.label, sort: form.value.sort, enabled: form.value.enabled, extra }
-  if (form.value.group === 'model_slug') payload.parent_id = form.value.parent_id || null
-  if (form.value.id) {
-    await updateDict(form.value.id, payload)
-  } else {
-    await createDict({
-      group: form.value.group,
-      value: form.value.value,
-      label: form.value.label || form.value.value,
-      sort: form.value.sort,
-      extra,
-      parent_id: form.value.parent_id || undefined
-    })
-  }
-  ElMessage.success('已保存')
-  dialog.value = false
-  await reload()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const extra = extraOf(form.value)
+    const payload = { label: form.value.label, sort: form.value.sort, enabled: form.value.enabled, extra }
+    if (form.value.group === 'model_slug') payload.parent_id = form.value.parent_id || null
+    if (form.value.id) {
+      await updateDict(form.value.id, payload)
+    } else {
+      await createDict({
+        group: form.value.group,
+        value: form.value.value,
+        label: form.value.label || form.value.value,
+        sort: form.value.sort,
+        extra,
+        parent_id: form.value.parent_id || undefined
+      })
+    }
+    ElMessage.success('已保存')
+    dialog.value = false
+    await reload()
+  } finally { saving.value = false }
 }
 
 async function toggle(row, v) {
-  await updateDict(row.id, { enabled: v })
-  await reload()
+  if (saving.value) return
+  saving.value = true
+  try {
+    await updateDict(row.id, { enabled: v })
+    await reload()
+  } finally { saving.value = false }
 }
 
 async function remove(row) {
-  if ((row.children || []).length) {
-    ElMessage.warning('请先删除该厂家下的模型标识')
-    return
-  }
-  const ok = await ElMessageBox.confirm(`删除「${row.label || row.value}」？`, '警告', { type: 'warning' }).catch(() => false)
-  if (!ok) return
-  await deleteDict(row.id)
-  ElMessage.success('已删除')
-  await reload()
+  if (saving.value) return
+  saving.value = true
+  try {
+    if ((row.children || []).length) {
+      ElMessage.warning('请先删除该厂家下的模型标识')
+      return
+    }
+    const ok = await ElMessageBox.confirm(`删除「${row.label || row.value}」？`, '警告', { type: 'warning' }).catch(() => false)
+    if (!ok) return
+    await deleteDict(row.id)
+    ElMessage.success('已删除')
+    await reload()
+  } finally { saving.value = false }
 }
 
 async function reload() {

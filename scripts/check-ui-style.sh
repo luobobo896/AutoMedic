@@ -19,10 +19,12 @@ if [ -n "$bad_radius" ]; then
   echo "✗ 圆角漂移（只允许 var(--am-radius-*)）："; echo "$bad_radius"; fail=1
 fi
 
-# 3. 视图层禁止新增硬编码 hex 颜色（echarts 色统一走 constants/tokens.js；
-#    index.css 与 Login/index.html 的首帧兜底为白名单文件）
-bad_hex=$(grep -rnE "#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b" views/ layout/ composables/ constants/ 2>/dev/null \
-  | grep -v "constants/tokens.js" || true)
+# 3. 视图层禁止新增硬编码 hex 颜色（echarts 色统一走 constants/tokens.js）
+#    唯一例外：styles/index.css 的 --am-* token 定义本身（色值唯一事实源）与
+#    index.html 的首帧兜底（在 web/ 下，不在本脚本扫描范围）
+bad_hex=$(grep -rnE "#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b" views/ layout/ composables/ constants/ styles/ 2>/dev/null \
+  | grep -v "constants/tokens.js" \
+  | grep -vE "^styles/index.css:[0-9]+: *--am-[a-z0-9-]+: *#[0-9a-fA-F]{3,8}" || true)
 if [ -n "$bad_hex" ]; then
   echo "✗ 视图层硬编码颜色（请用 --am-* token 或 AM_COLORS）："; echo "$bad_hex"; fail=1
 fi

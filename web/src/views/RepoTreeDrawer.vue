@@ -112,6 +112,7 @@ async function onClick(data) {
   display: flex;
   gap: 16px;
   height: calc(100vh - 160px);
+  height: calc(100dvh - 160px);
   min-height: 360px;
 }
 .repo-tree-pane {

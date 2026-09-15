@@ -19,6 +19,7 @@ export function setSession(token, refreshToken, user) {
   if (token) accessToken = token
   if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken)
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user))
+  sessionExpiredHandled = false
 }
 export function clearSession() {
   accessToken = ''
@@ -46,19 +47,24 @@ http.interceptors.request.use((cfg) => {
 
 // 401 自动续期一次，失败则清理会话并跳登录
 let refreshing = null
-// 并发 401 只清一次会话、只跳一次登录页
+// 并发 401 只清一次会话、只跳一次登录页：前后脚到达的并发请求共用一个时间窗
+const SESSION_EXPIRED_WINDOW = 3000
 let sessionExpiredHandled = false
+let sessionExpiredTimer = null
 
 function handleSessionExpired(notify) {
   if (sessionExpiredHandled) return
   sessionExpiredHandled = true
   clearSession()
   if (notify) ElMessage.error('登录已失效，请重新登录')
-  if (router.currentRoute.value.path !== '/login') {
-    router.replace('/login').catch(() => { /* ignore */ })
+  const from = router.currentRoute.value
+  if (from.path !== '/login') {
+    // 与路由守卫同一处权威：带上 redirect，登录后能回到原页面
+    router.replace({ path: '/login', query: from.path === '/' ? {} : { redirect: from.fullPath } })
+      .catch(() => { /* ignore */ })
   }
-  // 同一轮事件循环内的并发 401 合并处理，跳转后重置标志
-  setTimeout(() => { sessionExpiredHandled = false }, 0)
+  clearTimeout(sessionExpiredTimer)
+  sessionExpiredTimer = setTimeout(() => { sessionExpiredHandled = false }, SESSION_EXPIRED_WINDOW)
 }
 
 http.interceptors.response.use(
@@ -254,6 +260,9 @@ export const deleteDict = (id) => http.delete(`/v1/dicts/${id}`)
 
 export function taskWSURL(taskId) {
   const n = intID(taskId)
+  // 部署期注入的 VITE_WS_BASE（如 wss://host/automedic）优先，未配置时按当前域名推导
+  const base = import.meta.env.VITE_WS_BASE
+  if (base) return String(base).replace(/\/?$/, '/') + `ws/tasks/${n}`
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const root = String(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')
   return `${proto}//${location.host}${root}ws/tasks/${n}`

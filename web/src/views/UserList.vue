@@ -37,8 +37,8 @@
         </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="edit(row)">编辑</el-button>
-            <el-button link type="danger" @click="remove(row)">删除</el-button>
+            <el-button link type="primary" :disabled="saving" @click="edit(row)">编辑</el-button>
+            <el-button link type="danger" :disabled="saving" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -82,7 +82,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
-        <el-button type="primary" @click="submit">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -100,6 +100,7 @@ const roles = ref([])
 const tenants = ref([])
 const loading = ref(false)
 const dialog = ref(false)
+const saving = ref(false)
 const form = ref({ status: 'active', role_ids: [] })
 
 async function load() {
@@ -128,25 +129,33 @@ function edit(row) {
 }
 
 async function submit() {
-  const payload = {
-    username: form.value.username, display_name: form.value.display_name, email: form.value.email,
-    tenant_id: form.value.tenant_id, status: form.value.status, is_super: !!form.value.is_super,
-    role_ids: form.value.role_ids || []
-  }
-  if (form.value.password) payload.password = form.value.password
-  if (form.value.id) await updateUser(form.value.id, payload)
-  else await createUser(payload)
-  ElMessage.success('已保存')
-  dialog.value = false
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const payload = {
+      username: form.value.username, display_name: form.value.display_name, email: form.value.email,
+      tenant_id: form.value.tenant_id, status: form.value.status, is_super: !!form.value.is_super,
+      role_ids: form.value.role_ids || []
+    }
+    if (form.value.password) payload.password = form.value.password
+    if (form.value.id) await updateUser(form.value.id, payload)
+    else await createUser(payload)
+    ElMessage.success('已保存')
+    dialog.value = false
+    await load()
+  } finally { saving.value = false }
 }
 
 async function remove(row) {
-  const ok = await ElMessageBox.confirm(`确认删除用户「${row.username}」？`, '警告', { type: 'warning' }).catch(() => false)
-  if (!ok) return
-  await deleteUser(row.id)
-  ElMessage.success('已删除')
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const ok = await ElMessageBox.confirm(`确认删除用户「${row.username}」？`, '警告', { type: 'warning' }).catch(() => false)
+    if (!ok) return
+    await deleteUser(row.id)
+    ElMessage.success('已删除')
+    await load()
+  } finally { saving.value = false }
 }
 
 onMounted(load)

@@ -57,6 +57,7 @@
               link
               type="primary"
               :disabled="!canRetry(row)"
+              :loading="retryingId === row.id"
               :title="canRetry(row) ? '' : retryDisabledHint(row)"
               :aria-disabled="!canRetry(row)"
               @click.stop="retry(row)"
@@ -64,6 +65,7 @@
             <el-button
               link
               :disabled="!canCancel(row)"
+              :loading="cancellingId === row.id"
               @click.stop="cancel(row)"
             >取消</el-button>
           </template>
@@ -88,6 +90,9 @@ const list = ref([])
 const projects = ref([])
 const total = ref(0)
 const loading = ref(false)
+// 行级写操作 in-flight 守卫：双击不再产生第二个重试任务 / 重复取消
+const retryingId = ref(0)
+const cancellingId = ref(0)
 const query = reactive({ page: 1, page_size: 20, project_id: '', status: '', mode: '', keyword: '' })
 
 async function load() {
@@ -125,21 +130,27 @@ function retryDisabledHint(row) {
 }
 
 async function retry(row) {
-  if (!canRetry(row)) return
-  const r = await retryTask(row.id)
-  if (r.data?.resume) {
-    ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
-  } else {
-    ElMessage.success('已创建重试任务 #' + r.data.id)
-  }
-  load()
+  if (!canRetry(row) || retryingId.value || cancellingId.value) return
+  retryingId.value = row.id
+  try {
+    const r = await retryTask(row.id)
+    if (r.data?.resume) {
+      ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
+    } else {
+      ElMessage.success('已创建重试任务 #' + r.data.id)
+    }
+    await load()
+  } finally { retryingId.value = 0 }
 }
 
 async function cancel(row) {
-  if (!canCancel(row)) return
-  await cancelTask(row.id)
-  ElMessage.success('已取消')
-  load()
+  if (!canCancel(row) || cancellingId.value || retryingId.value) return
+  cancellingId.value = row.id
+  try {
+    await cancelTask(row.id)
+    ElMessage.success('已取消')
+    await load()
+  } finally { cancellingId.value = 0 }
 }
 
 onMounted(async () => {

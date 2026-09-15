@@ -23,10 +23,10 @@
             <span class="am-provider-name">{{ p.name }}</span>
             <el-tag v-if="current?.id === p.id" class="am-pill am-pill-current" size="small">当前</el-tag>
             <div class="am-flex-1" />
-            <el-button class="am-icon-btn" link @click.stop="editProvider(p)">
+            <el-button class="am-icon-btn" link :disabled="saving" @click.stop="editProvider(p)">
               <el-icon><EditPen /></el-icon>
             </el-button>
-            <el-button class="am-icon-btn am-icon-danger" link @click.stop="removeProvider(p)">
+            <el-button class="am-icon-btn am-icon-danger" link :disabled="saving" @click.stop="removeProvider(p)">
               <el-icon><Delete /></el-icon>
             </el-button>
           </div>
@@ -67,12 +67,12 @@
             </div>
           </div>
           <div class="am-model-actions">
-            <el-button v-if="!m.is_default" link size="small" @click="setDefault(m)">设为默认</el-button>
-            <el-switch v-model="m.enabled" size="small" @change="v => toggleModel(m, v)" />
-            <el-button class="am-icon-btn" link @click="editModel(m)">
+            <el-button v-if="!m.is_default" link size="small" :disabled="saving" @click="setDefault(m)">设为默认</el-button>
+            <el-switch v-model="m.enabled" size="small" :disabled="saving" @change="v => toggleModel(m, v)" />
+            <el-button class="am-icon-btn" link :disabled="saving" @click="editModel(m)">
               <el-icon><EditPen /></el-icon>
             </el-button>
-            <el-button class="am-icon-btn am-icon-danger" link @click="removeModel(m)">
+            <el-button class="am-icon-btn am-icon-danger" link :disabled="saving" @click="removeModel(m)">
               <el-icon><Delete /></el-icon>
             </el-button>
           </div>
@@ -123,7 +123,7 @@
       </el-form>
       <template #footer>
         <el-button @click="providerDialog = false">取消</el-button>
-        <el-button type="primary" @click="submitProvider">保存环境</el-button>
+        <el-button type="primary" :loading="saving" @click="submitProvider">保存环境</el-button>
       </template>
     </el-dialog>
 
@@ -200,7 +200,7 @@
       </el-form>
       <template #footer>
         <el-button @click="modelDialog = false">取消</el-button>
-        <el-button type="primary" @click="submitModel">保存模型</el-button>
+        <el-button type="primary" :loading="saving" @click="submitModel">保存模型</el-button>
       </template>
     </el-dialog>
   </div>
@@ -288,6 +288,7 @@ const providers = ref([])
 const models = ref([])
 const settings = ref({})
 const current = ref(null)
+const saving = ref(false)
 
 const providerDialog = ref(false)
 const modelDialog = ref(false)
@@ -408,23 +409,31 @@ function editProvider(row) {
 }
 
 async function submitProvider() {
-  const payload = {
-    name: providerForm.value.name, key: providerForm.value.key, kind: providerForm.value.kind,
-    base_url: providerForm.value.base_url || '', remark: providerForm.value.remark || '',
-    enabled: providerForm.value.enabled !== false, api_key: providerForm.value.api_key || ''
-  }
-  if (providerForm.value.id) await updateProvider(providerForm.value.id, payload)
-  else await createProvider(payload)
-  ElMessage.success('已保存')
-  providerDialog.value = false
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const payload = {
+      name: providerForm.value.name, key: providerForm.value.key, kind: providerForm.value.kind,
+      base_url: providerForm.value.base_url || '', remark: providerForm.value.remark || '',
+      enabled: providerForm.value.enabled !== false, api_key: providerForm.value.api_key || ''
+    }
+    if (providerForm.value.id) await updateProvider(providerForm.value.id, payload)
+    else await createProvider(payload)
+    ElMessage.success('已保存')
+    providerDialog.value = false
+    await load()
+  } finally { saving.value = false }
 }
 
 async function removeProvider(row) {
-  const ok = await ElMessageBox.confirm(`确认删除厂家「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
-  if (!ok) return
-  await deleteProvider(row.id)
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const ok = await ElMessageBox.confirm(`确认删除厂家「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+    if (!ok) return
+    await deleteProvider(row.id)
+    await load()
+  } finally { saving.value = false }
 }
 
 function onSlugChange(slug) {
@@ -482,28 +491,51 @@ function modelPayload() {
 }
 
 async function submitModel() {
-  let payload
+  if (saving.value) return
+  saving.value = true
   try {
-    payload = modelPayload()
-  } catch {
-    ElMessage.error('额外参数不是合法 JSON')
-    return
-  }
-  if (modelForm.value.id) await updateModel(modelForm.value.id, payload)
-  else await createModel(payload)
-  ElMessage.success('已保存')
-  modelDialog.value = false
-  load()
+    let payload
+    try {
+      payload = modelPayload()
+    } catch {
+      ElMessage.error('额外参数不是合法 JSON')
+      return
+    }
+    if (modelForm.value.id) await updateModel(modelForm.value.id, payload)
+    else await createModel(payload)
+    ElMessage.success('已保存')
+    modelDialog.value = false
+    await load()
+  } finally { saving.value = false }
 }
 
-async function toggleModel(row, v) { await updateModel(row.id, { enabled: v }); ElMessage.success('已更新') }
-async function setDefault(row) { await updateModel(row.id, { is_default: true }); ElMessage.success('已设为默认'); load() }
+async function toggleModel(row, v) {
+  if (saving.value) return
+  saving.value = true
+  try {
+    await updateModel(row.id, { enabled: v })
+    ElMessage.success('已更新')
+  } finally { saving.value = false }
+}
+async function setDefault(row) {
+  if (saving.value) return
+  saving.value = true
+  try {
+    await updateModel(row.id, { is_default: true })
+    ElMessage.success('已设为默认')
+    await load()
+  } finally { saving.value = false }
+}
 
 async function removeModel(row) {
-  const ok = await ElMessageBox.confirm(`确认删除模型「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
-  if (!ok) return
-  await deleteModel(row.id)
-  load()
+  if (saving.value) return
+  saving.value = true
+  try {
+    const ok = await ElMessageBox.confirm(`确认删除模型「${row.name}」？`, '警告', { type: 'warning' }).catch(() => false)
+    if (!ok) return
+    await deleteModel(row.id)
+    await load()
+  } finally { saving.value = false }
 }
 
 onMounted(async () => {

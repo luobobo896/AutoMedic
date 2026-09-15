@@ -461,6 +461,7 @@ onUnmounted(stopPoll)
   padding: 0;
   overflow-y: auto;
   max-height: calc(100vh - 220px);
+  max-height: calc(100dvh - 220px);
 }
 .rv-hist {
   display: flex;
@@ -575,7 +576,7 @@ onUnmounted(stopPoll)
 .rv-split.is-open {
   grid-template-columns: minmax(280px, 1fr) minmax(0, 1.1fr);
 }
-.rv-list { overflow-y: auto; max-height: calc(100vh - 280px); }
+.rv-list { overflow-y: auto; max-height: calc(100vh - 280px); max-height: calc(100dvh - 280px); }
 .rv-item {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
@@ -632,6 +633,7 @@ onUnmounted(stopPoll)
   padding: 16px 18px;
   overflow-y: auto;
   max-height: calc(100vh - 280px);
+  max-height: calc(100dvh - 280px);
 }
 .rv-detail__head {
   display: flex;

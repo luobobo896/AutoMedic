@@ -26,6 +26,13 @@
   --am-success: #4cc38a;
   --am-warning: #e5a54b;
 
+  /* ===== 终端 / diff 调色（token 体系外不再出现裸色值）===== */
+  --am-term-bg: #0d0d0f;
+  --am-term-text: #c8d3e6;
+  --am-term-sys: #7aa2f7;
+  --am-term-err: #f7768e;
+  --am-term-ok: #7fd962;
+
   /* ===== 字号阶梯（7 档，禁止再引入中间值）===== */
   --am-font-xs: 12px;         /* 标注、chip、代码 */
   --am-font-sm: 13px;         /* 辅助说明 */
@@ -74,7 +81,6 @@
   --am-radius: var(--am-radius-lg); /* 兼容旧引用 */
 
   /* Element Plus 全局柔和化 */
-  --el-color-primary: var(--am-primary);
   --el-color-success: var(--am-success);
   --el-color-warning: var(--am-warning);
   --el-color-danger: var(--am-danger);
@@ -95,6 +101,24 @@
   --el-text-color-secondary: var(--am-text-dim);
   --el-text-color-placeholder: var(--am-text-dim);
   --el-font-size-base: var(--am-font-md);
+}
+
+/* EP 主色与派生色阶：EP 深色主题把默认蓝写在 html.dark（0,1,1），
+   比 :root（0,1,0）更具体 —— 必须用 html.dark:root 才真正覆盖，
+   否则 link/plain 按钮与 secondary 按钮 hover 会露出 EP 蓝（一屏两套蓝）。 */
+:root,
+html.dark:root {
+  --el-color-primary: var(--am-primary);
+  --el-color-primary-light-1: color-mix(in srgb, var(--am-primary) 90%, var(--am-bg));
+  --el-color-primary-light-2: color-mix(in srgb, var(--am-primary) 80%, var(--am-bg));
+  --el-color-primary-light-3: color-mix(in srgb, var(--am-primary) 70%, var(--am-bg));
+  --el-color-primary-light-4: color-mix(in srgb, var(--am-primary) 60%, var(--am-bg));
+  --el-color-primary-light-5: color-mix(in srgb, var(--am-primary) 50%, var(--am-bg));
+  --el-color-primary-light-6: color-mix(in srgb, var(--am-primary) 40%, var(--am-bg));
+  --el-color-primary-light-7: color-mix(in srgb, var(--am-primary) 30%, var(--am-bg));
+  --el-color-primary-light-8: color-mix(in srgb, var(--am-primary) 20%, var(--am-bg));
+  --el-color-primary-light-9: color-mix(in srgb, var(--am-primary) 10%, var(--am-bg));
+  --el-color-primary-dark-2: var(--am-primary-hover);
 }
 
 * { box-sizing: border-box; }
@@ -217,7 +241,7 @@ a { text-decoration: none; }
 .am-stat .label { font-size: var(--am-font-sm); color: var(--am-text-dim); }
 .am-stat .value { font-size: var(--am-font-num); font-weight: 600; margin-top: 6px; }
 
-/* 语义色数值：取代视图内联色（如 #f59f00 / #37b24d / #f0506e） */
+/* 语义色数值：取代视图内联色（警告/成功/危险的裸色值） */
 .am-value--warning { color: var(--am-warning); }
 .am-value--success { color: var(--am-success); }
 .am-value--danger { color: var(--am-danger); }
@@ -231,14 +255,14 @@ a { text-decoration: none; }
 }
 
 .am-terminal {
-  background: #0d0d0f;
+  background: var(--am-term-bg);
   border: 1px solid var(--am-border);
   border-radius: var(--am-radius-lg);
   padding: var(--am-space-3);
   font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
   font-size: var(--am-font-sm);
   line-height: 1.6;
-  color: #c8d3e6;
+  color: var(--am-term-text);
   height: 460px;
   min-width: 0;
   max-width: 100%;
@@ -254,12 +278,12 @@ a { text-decoration: none; }
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.am-terminal .line-sys { color: #7aa2f7; }
-.am-terminal .line-stderr { color: #f7768e; }
-.am-terminal .line-stdout { color: #c8d3e6; }
+.am-terminal .line-sys { color: var(--am-term-sys); }
+.am-terminal .line-stderr { color: var(--am-term-err); }
+.am-terminal .line-stdout { color: var(--am-term-text); }
 
 .am-diff {
-  background: #0d0d0f;
+  background: var(--am-term-bg);
   border: 1px solid var(--am-border);
   border-radius: var(--am-radius-lg);
   padding: 14px var(--am-space-4);
@@ -276,9 +300,9 @@ a { text-decoration: none; }
   word-break: break-word;
 }
 
-.am-diff .add { color: #7fd962; }
-.am-diff .del { color: #f7768e; }
-.am-diff .hunk { color: #7aa2f7; }
+.am-diff .add { color: var(--am-term-ok); }
+.am-diff .del { color: var(--am-term-err); }
+.am-diff .hunk { color: var(--am-term-sys); }
 
 /* ===== Element Plus 深色柔和适配 ===== */
 .el-card { --el-card-bg-color: var(--am-bg-elevated); border-color: var(--am-border); border-radius: var(--am-radius); }
@@ -307,11 +331,14 @@ a { text-decoration: none; }
 }
 .review-drawer .el-drawer__body {
   padding: 8px 20px 20px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
   height: calc(100% - 56px);
   overflow: auto;
   display: flex;
   flex-direction: column;
 }
+/* 抽屉底部留出 iOS 安全区（viewport-fit=cover 已声明，桌面为 0） */
+.el-drawer__body { padding-bottom: max(20px, env(safe-area-inset-bottom, 0px)); }
 .el-dialog { --el-dialog-bg-color: var(--am-bg-elevated); border-radius: var(--am-radius-lg); }
 
 /* 输入框 / 文本域：inset 底 + 柔和悬停 */
@@ -378,18 +405,51 @@ a { text-decoration: none; }
   padding-inline: var(--am-control-pad-x);
   border-radius: var(--am-radius-md);
   cursor: pointer;
+  max-width: 16em;
   transition: background-color var(--am-duration) var(--am-easing),
     border-color var(--am-duration) var(--am-easing),
     color var(--am-duration) var(--am-easing),
     opacity var(--am-duration) var(--am-easing);
 }
-.el-button--small { min-height: var(--am-control-h-sm); padding-inline: var(--am-space-3); }
-.el-button--large { min-height: var(--am-control-h-lg); padding-inline: var(--am-space-4); }
+/* §7.1 规格表：medium 88px / small 64px / large 96px。
+   link/text 型是表格操作列的紧凑文字动作，不套最小宽度（固定列宽会被撑破） */
+.el-button:not(.is-link, .is-text, .el-button--text) { min-width: var(--am-control-min-w); }
+.el-button--small:not(.is-link, .is-text, .el-button--text) {
+  min-height: var(--am-control-h-sm);
+  padding-inline: var(--am-space-3);
+  min-width: 64px;
+}
+.el-button--large:not(.is-link, .is-text, .el-button--text) {
+  min-height: var(--am-control-h-lg);
+  padding-inline: var(--am-space-4);
+  min-width: 96px;
+}
+/* 超长文案截断（16em）：EP 的 >span 是 inline-flex，改 block 省略号才可靠生效 */
+.el-button > span {
+  display: block;
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .el-button:focus-visible {
   outline: 2px solid var(--am-primary);
   outline-offset: 2px;
 }
 .el-button.is-disabled { cursor: not-allowed; opacity: .45; }
+/* secondary（默认型）按 §3.1：hover 只换边框、press 换底色；typed 按钮各走各的规则 */
+.el-button:not(.is-link, .is-text, .el-button--text, .el-button--primary,
+    .el-button--success, .el-button--warning, .el-button--danger, .el-button--info) {
+  --el-button-bg-color: var(--am-bg-inset);
+  --el-button-border-color: var(--am-border);
+  --el-button-text-color: var(--am-text);
+  --el-button-hover-text-color: var(--am-text);
+  --el-button-hover-bg-color: var(--am-bg-inset);
+  --el-button-hover-border-color: var(--am-border-strong);
+  --el-button-active-text-color: var(--am-text);
+  --el-button-active-bg-color: var(--am-bg);
+  --el-button-active-border-color: var(--am-border-strong);
+}
 .el-button--primary {
   background: var(--am-primary);
   border-color: transparent;
@@ -571,7 +631,7 @@ a { text-decoration: none; }
   font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
   font-size: var(--am-font-xs);
   line-height: 1.65;
-  color: #c8d3e6;
+  color: var(--am-term-text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 0;
