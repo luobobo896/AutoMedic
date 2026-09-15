@@ -27,7 +27,8 @@ func NewRouter(d *Deps) *gin.Engine {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	r := gin.New()
-	r.Use(gin.Recovery())
+	// 请求 ID 最先注入：审计、错误日志与响应头共用同一个 trace id
+	r.Use(requestIDMiddleware(), gin.Recovery())
 	// 配置可信代理：为空表示不信任任何代理，ClientIP 取 TCP 对端；
 	// 必须在注册任何路由前调用。忽略其返回的错误。
 	var trustedProxies []string
@@ -99,14 +100,14 @@ func NewRouter(d *Deps) *gin.Engine {
 		authed.POST("/projects", P(model.PermProjectCreate), h.CreateProject)
 		authed.GET("/projects/:id", P(model.PermProjectRead), h.GetProject)
 		authed.PUT("/projects/:id", P(model.PermProjectUpdate), h.UpdateProject)
-		authed.DELETE("/projects/:id", P(model.PermProjectDelete), h.DeleteProject)
+		authed.DELETE("/projects/:id", auditWrite("project"), P(model.PermProjectDelete), h.DeleteProject)
 
 		// 仓库
 		authed.GET("/repos", P(model.PermRepoRead), h.ListRepos)
 		authed.POST("/repos", P(model.PermRepoCreate), h.CreateRepo)
 		authed.GET("/repos/:id", P(model.PermRepoRead), h.GetRepo)
 		authed.PUT("/repos/:id", P(model.PermRepoUpdate), h.UpdateRepo)
-		authed.DELETE("/repos/:id", P(model.PermRepoDelete), h.DeleteRepo)
+		authed.DELETE("/repos/:id", auditWrite("repo"), P(model.PermRepoDelete), h.DeleteRepo)
 		authed.POST("/repos/:id/test", P(model.PermRepoRead), h.TestRepo)
 		authed.GET("/repos/:id/tree", P(model.PermRepoRead), h.GetRepoTree)
 		authed.GET("/repos/:id/file", P(model.PermRepoRead), h.GetRepoFile)
@@ -117,10 +118,10 @@ func NewRouter(d *Deps) *gin.Engine {
 
 		// 凭证
 		authed.GET("/credentials", P(model.PermCredentialRead), h.ListCredentials)
-		authed.POST("/credentials", P(model.PermCredentialCreate), h.CreateCredential)
+		authed.POST("/credentials", auditWrite("credential"), P(model.PermCredentialCreate), h.CreateCredential)
 		authed.GET("/credentials/:id", P(model.PermCredentialRead), h.GetCredential)
-		authed.PUT("/credentials/:id", P(model.PermCredentialUpdate), h.UpdateCredential)
-		authed.DELETE("/credentials/:id", P(model.PermCredentialDelete), h.DeleteCredential)
+		authed.PUT("/credentials/:id", auditWrite("credential"), P(model.PermCredentialUpdate), h.UpdateCredential)
+		authed.DELETE("/credentials/:id", auditWrite("credential"), P(model.PermCredentialDelete), h.DeleteCredential)
 		authed.GET("/credential-usages", P(model.PermCredentialRead), h.ListCredentialUsages)
 
 		// 大模型配置（平台级共享）
@@ -169,7 +170,7 @@ func NewRouter(d *Deps) *gin.Engine {
 
 		// 配置（dsh / git 运行参数）
 		authed.GET("/settings", P(model.PermSettingsRead), h.GetSettings)
-		authed.PUT("/settings", P(model.PermSettingsUpdate), h.UpdateSettings)
+		authed.PUT("/settings", auditWrite("settings"), P(model.PermSettingsUpdate), h.UpdateSettings)
 		authed.GET("/dicts", P(model.PermSettingsRead), h.ListDicts)
 		authed.POST("/dicts", P(model.PermSettingsUpdate), h.CreateDict)
 		authed.PUT("/dicts/:id", P(model.PermSettingsUpdate), h.UpdateDict)
@@ -177,19 +178,19 @@ func NewRouter(d *Deps) *gin.Engine {
 
 		// 用户与角色（租户级）
 		authed.GET("/users", P(model.PermUserRead), h.ListUsers)
-		authed.POST("/users", P(model.PermUserCreate), h.CreateUser)
-		authed.PUT("/users/:id", P(model.PermUserUpdate), h.UpdateUser)
-		authed.DELETE("/users/:id", P(model.PermUserDelete), h.DeleteUser)
+		authed.POST("/users", auditWrite("user"), P(model.PermUserCreate), h.CreateUser)
+		authed.PUT("/users/:id", auditWrite("user"), P(model.PermUserUpdate), h.UpdateUser)
+		authed.DELETE("/users/:id", auditWrite("user"), P(model.PermUserDelete), h.DeleteUser)
 		authed.GET("/roles", P(model.PermRoleRead), h.ListRoles)
-		authed.POST("/roles", P(model.PermRoleCreate), h.CreateRole)
-		authed.PUT("/roles/:id", P(model.PermRoleUpdate), h.UpdateRole)
-		authed.DELETE("/roles/:id", P(model.PermRoleDelete), h.DeleteRole)
+		authed.POST("/roles", auditWrite("role"), P(model.PermRoleCreate), h.CreateRole)
+		authed.PUT("/roles/:id", auditWrite("role"), P(model.PermRoleUpdate), h.UpdateRole)
+		authed.DELETE("/roles/:id", auditWrite("role"), P(model.PermRoleDelete), h.DeleteRole)
 
 		// 租户（平台级）
 		authed.GET("/tenants", P(model.PermTenantRead), h.ListTenants)
-		authed.POST("/tenants", P(model.PermTenantCreate), h.CreateTenant)
-		authed.PUT("/tenants/:id", P(model.PermTenantUpdate), h.UpdateTenant)
-		authed.DELETE("/tenants/:id", P(model.PermTenantDelete), h.DeleteTenant)
+		authed.POST("/tenants", auditWrite("tenant"), P(model.PermTenantCreate), h.CreateTenant)
+		authed.PUT("/tenants/:id", auditWrite("tenant"), P(model.PermTenantUpdate), h.UpdateTenant)
+		authed.DELETE("/tenants/:id", auditWrite("tenant"), P(model.PermTenantDelete), h.DeleteTenant)
 	}
 
 	// 事件投递：项目令牌鉴权（不走账号登录）

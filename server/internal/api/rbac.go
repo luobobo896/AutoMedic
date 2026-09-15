@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,46 +18,110 @@ import (
 
 type loginBucket struct {
 	fails int
-	until time.Time
+	until time.Time // 锁定截止时间
+	last  time.Time // 最近一次失败时间（过期条目清理用）
 }
 
-var loginGuard = struct {
-	mu   sync.Mutex
-	byIP map[string]*loginBucket
-}{byIP: map[string]*loginBucket{}}
+// 登录限流：账号维度递增退避 + 单 IP 维度宽松上限，两个维度独立计数。
+// 纯进程内状态（与既有实现一致）：多实例部署时各实例独立判定，最坏情况是阈值按实例数放大。
+const (
+	loginAccountFails  = 5                // 账号维度：连续失败次数
+	loginBackoffBase   = 30 * time.Second // 首次锁定窗口，之后按 2 倍递增
+	loginBackoffMax    = 15 * time.Minute
+	loginIPFails       = 30 // 单 IP 维度：宽松上限，避免一个来源把所有账号锁死
+	loginIPLock        = time.Minute
+	loginEntryTTL      = 10 * time.Minute // 超过该时长未再失败的条目在惰性清理时删除
+	loginEntryMax      = 20000            // 计数桶上限，超过后不再新增（内存保护）
+	loginSweepInterval = 30 * time.Second
+)
 
-func loginAllowed(ip string) bool {
-	loginGuard.mu.Lock()
-	defer loginGuard.mu.Unlock()
-	b := loginGuard.byIP[ip]
-	if b == nil {
-		return true
-	}
-	if time.Now().Before(b.until) {
-		return false
-	}
-	return true
+type loginGuardState struct {
+	mu      sync.Mutex
+	byKey   map[string]*loginBucket
+	sweptAt time.Time
 }
 
-func recordLoginFail(ip string) {
+var loginGuard = loginGuardState{byKey: map[string]*loginBucket{}}
+
+func loginKeyUser(username string) string { return "u:" + username }
+func loginKeyIP(ip string) string         { return "i:" + ip }
+
+// loginRetryAfter 返回还需等待多久才能再尝试登录（0 表示允许）
+func loginRetryAfter(username, ip string) time.Duration {
 	loginGuard.mu.Lock()
 	defer loginGuard.mu.Unlock()
-	b := loginGuard.byIP[ip]
-	if b == nil {
-		b = &loginBucket{}
-		loginGuard.byIP[ip] = b
+	now := time.Now()
+	loginGuard.sweepLocked(now)
+	var wait time.Duration
+	for _, key := range []string{loginKeyUser(username), loginKeyIP(ip)} {
+		if b := loginGuard.byKey[key]; b != nil && now.Before(b.until) {
+			if d := b.until.Sub(now); d > wait {
+				wait = d
+			}
+		}
 	}
-	b.fails++
-	if b.fails >= 8 {
-		b.until = time.Now().Add(time.Minute)
-		b.fails = 0
+	return wait
+}
+
+func recordLoginFail(username, ip string) {
+	loginGuard.mu.Lock()
+	defer loginGuard.mu.Unlock()
+	now := time.Now()
+	loginGuard.sweepLocked(now)
+	if b := loginGuard.bucketLocked(loginKeyUser(username), now); b != nil {
+		b.fails++
+		if b.fails >= loginAccountFails {
+			lock := loginBackoffBase
+			for i := loginAccountFails; i < b.fails && lock < loginBackoffMax; i++ {
+				lock *= 2
+			}
+			if lock > loginBackoffMax {
+				lock = loginBackoffMax
+			}
+			b.until = now.Add(lock)
+		}
+	}
+	if b := loginGuard.bucketLocked(loginKeyIP(ip), now); b != nil {
+		b.fails++
+		if b.fails >= loginIPFails {
+			b.until = now.Add(loginIPLock)
+			b.fails = 0
+		}
 	}
 }
 
-func recordLoginOK(ip string) {
+func recordLoginOK(username, ip string) {
 	loginGuard.mu.Lock()
 	defer loginGuard.mu.Unlock()
-	delete(loginGuard.byIP, ip)
+	delete(loginGuard.byKey, loginKeyUser(username))
+	delete(loginGuard.byKey, loginKeyIP(ip))
+}
+
+// bucketLocked 取计数桶；达到内存上限后不再新增（限流是缓解手段，优先保证进程内存可控）
+func (g *loginGuardState) bucketLocked(key string, now time.Time) *loginBucket {
+	if b := g.byKey[key]; b != nil {
+		b.last = now
+		return b
+	}
+	if len(g.byKey) >= loginEntryMax {
+		return nil
+	}
+	b := &loginBucket{last: now}
+	g.byKey[key] = b
+	return b
+}
+
+// sweepLocked 删除长期未再失败的条目，避免失败计数表在进程生命周期内无界增长
+func (g *loginGuardState) sweepLocked(now time.Time) {
+	if now.Sub(g.sweptAt) < loginSweepInterval {
+		return
+	}
+	g.sweptAt = now
+	for k, b := range g.byKey {
+		if now.Sub(b.last) > loginEntryTTL && now.After(b.until) {
+			delete(g.byKey, k)
+		}
+	}
 }
 
 // ---------- 登录 / 令牌 ----------
@@ -73,24 +138,27 @@ func (h *Handlers) Login(c *gin.Context) {
 		return
 	}
 	if in.Username == "" || in.Password == "" {
-		slog.Warn("登录失败", "username", in.Username, "ip", c.ClientIP(), "reason", "账号或密码为空")
+		slog.Warn("登录失败", "request_id", RequestID(c), "username", in.Username, "ip", c.ClientIP(), "reason", "账号或密码为空")
 		BadRequest(c, "请输入账号与密码")
 		return
 	}
 	ip := c.ClientIP()
-	if !loginAllowed(ip) {
+	if wait := loginRetryAfter(in.Username, ip); wait > 0 {
+		secs := int(wait.Seconds()) + 1
+		c.Header("Retry-After", strconv.Itoa(secs))
+		slog.Warn("登录被限流", "request_id", RequestID(c), "username", in.Username, "ip", ip, "retry_after_sec", secs)
 		Fail(c, http.StatusTooManyRequests, "登录失败次数过多，请稍后再试")
 		return
 	}
 	p, access, refresh, err := h.auth.Login(in.Username, in.Password, ip, c.GetHeader("User-Agent"))
 	if err != nil {
-		recordLoginFail(ip)
-		slog.Warn("登录失败", "username", in.Username, "ip", ip, "result", err.Error())
+		recordLoginFail(in.Username, ip)
+		slog.Warn("登录失败", "request_id", RequestID(c), "username", in.Username, "ip", ip, "result", err.Error())
 		Fail(c, http.StatusUnauthorized, err.Error())
 		return
 	}
-	recordLoginOK(ip)
-	slog.Info("登录成功", "username", in.Username, "ip", ip, "result", "ok")
+	recordLoginOK(in.Username, ip)
+	slog.Info("登录成功", "request_id", RequestID(c), "username", in.Username, "ip", ip, "result", "ok")
 	OK(c, gin.H{"token": access, "refresh_token": refresh, "user": profileOf(p)})
 }
 
@@ -171,6 +239,13 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 		ServerError(c, err)
 		return
 	}
+	// 改口令即吊销该用户全部刷新令牌：口令泄露后的处置必须能踢掉旧会话
+	if err := h.auth.RevokeUserTokens(p.User.ID); err != nil {
+		ServerError(c, err)
+		return
+	}
+	slog.Info("口令已修改，旧会话刷新令牌已吊销", "request_id", RequestID(c),
+		"user_id", p.User.ID, "username", p.User.Username, "tenant_id", p.TenantID)
 	OK(c, gin.H{"updated": true})
 }
 
@@ -328,6 +403,15 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 		BadRequest(c, err)
 		return
 	}
+	if in.Password != "" {
+		// 管理员重置口令同样要吊销旧会话，否则被处置的账号仍能用旧 refresh 续期
+		if err := h.auth.RevokeUserTokens(u.ID); err != nil {
+			ServerError(c, err)
+			return
+		}
+		slog.Info("管理员重置口令，已吊销该用户全部刷新令牌", "request_id", RequestID(c),
+			"user_id", u.ID, "username", u.Username, "operator_id", h.principalID(c))
+	}
 	if in.RoleIDs != nil {
 		if err := h.replaceUserRoles(c, u.ID, u.TenantID, in.RoleIDs); err != nil {
 			BadRequest(c, err)
@@ -460,7 +544,13 @@ func (h *Handlers) CreateRole(c *gin.Context) {
 		BadRequest(c, "角色编码与名称不能为空")
 		return
 	}
-	tid := h.tenant(c)
+	if !h.isSuper(c) && rejectPlatformPerms(c, in.Permissions) {
+		return
+	}
+	tid, ok := h.requireWriteTenant(c)
+	if !ok {
+		return
+	}
 	var n int64
 	h.db.Model(&model.Role{}).Where("tenant_id = ? AND code = ?", tid, in.Code).Count(&n)
 	if n > 0 {
@@ -473,9 +563,33 @@ func (h *Handlers) CreateRole(c *gin.Context) {
 		return
 	}
 	if len(in.Permissions) > 0 {
-		store.SetRolePermissions(h.db, r.ID, in.Permissions)
+		set := store.SetRolePermissions
+		if !h.isSuper(c) {
+			set = store.SetTenantRolePermissions
+		}
+		if err := set(h.db, r.ID, in.Permissions); err != nil {
+			ServerError(c, err)
+			return
+		}
 	}
+	slog.Info("角色已创建", "request_id", RequestID(c), "operator_id", h.principalID(c),
+		"role_id", r.ID, "tenant_id", r.TenantID, "code", r.Code, "permissions", in.Permissions)
 	OK(c, r)
+}
+
+// rejectPlatformPerms 非超管提交平台专属权限码直接拒绝（不做静默剔除，避免返回假成功）
+func rejectPlatformPerms(c *gin.Context, codes []string) bool {
+	var bad []string
+	for _, code := range codes {
+		if model.PlatformOnlyPermissions[code] {
+			bad = append(bad, code)
+		}
+	}
+	if len(bad) == 0 {
+		return false
+	}
+	BadRequest(c, "平台专属权限仅平台超管可授予："+strings.Join(bad, ", "))
+	return true
 }
 
 func (h *Handlers) UpdateRole(c *gin.Context) {
@@ -516,7 +630,22 @@ func (h *Handlers) UpdateRole(c *gin.Context) {
 			return
 		}
 	} else if in.Permissions != nil {
-		if err := store.SetRolePermissions(h.db, r.ID, in.Permissions); err != nil {
+		if !h.isSuper(c) && rejectPlatformPerms(c, in.Permissions) {
+			return
+		}
+		set := store.SetRolePermissions
+		if !h.isSuper(c) {
+			set = store.SetTenantRolePermissions
+		}
+		if err := set(h.db, r.ID, in.Permissions); err != nil {
+			ServerError(c, err)
+			return
+		}
+	} else if !h.isSuper(c) {
+		// 未提交权限也要回收该角色历史上残留的平台码：非超管不得在自己的租户角色里保留平台权限
+		var codes []string
+		h.db.Model(&model.RolePermission{}).Where("role_id = ?", r.ID).Pluck("code", &codes)
+		if err := store.SetTenantRolePermissions(h.db, r.ID, codes); err != nil {
 			ServerError(c, err)
 			return
 		}

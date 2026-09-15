@@ -222,6 +222,18 @@ func AllPermissions() []string {
 	return out
 }
 
+// PlatformOnlyPermissions 平台专属权限码：能跨租户读写或改动全局运行配置（dsh / 模型接入点），
+// 只允许平台超管持有与授予。租户角色（内置或自建）一律不得包含这些码。
+var PlatformOnlyPermissions = map[string]bool{
+	PermTenantRead:   true,
+	PermTenantCreate: true,
+	PermTenantUpdate: true,
+	PermTenantDelete: true,
+	PermModelUpdate:  true,
+	// settings:update 可改 dsh.patch_template / dsh.home，等于给租户开全局 dsh 进程配置写入口
+	PermSettingsUpdate: true,
+}
+
 // 内置角色码
 const (
 	RoleSuperAdmin  = "super_admin"  // 平台超管：全部权限，跨租户
@@ -259,17 +271,11 @@ var BuiltinRoles = map[string][]string{
 	},
 }
 
-// tenantBusinessPermissions 租户内业务权限（不含平台级租户管理）
+// tenantBusinessPermissions 租户内业务权限（不含平台专属权限）
 func tenantBusinessPermissions() []string {
-	skip := map[string]bool{
-		PermTenantRead: true, PermTenantCreate: true, PermTenantUpdate: true, PermTenantDelete: true,
-		PermModelUpdate: true,
-		// 可改 command_template / release_hook / dsh.bin，不得给租户默认
-		PermSettingsUpdate: true,
-	}
 	out := make([]string, 0, len(PermissionCatalog))
 	for _, p := range PermissionCatalog {
-		if skip[p.Code] {
+		if PlatformOnlyPermissions[p.Code] {
 			continue
 		}
 		out = append(out, p.Code)

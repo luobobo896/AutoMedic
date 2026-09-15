@@ -154,6 +154,16 @@ func (s *Service) loadPrincipal(u model.User) (*Principal, error) {
 		s.db.Model(&model.RolePermission{}).Where("role_id IN ?", roleIDs).Distinct().Pluck("code", &codes)
 		perms = codes
 	}
+	if !isSuper {
+		// 纵深防御：非超管主体一律不持有平台专属权限码（历史自授或直改库的残留不生效）
+		kept := make([]string, 0, len(perms))
+		for _, c := range perms {
+			if !model.PlatformOnlyPermissions[c] {
+				kept = append(kept, c)
+			}
+		}
+		perms = kept
+	}
 	return &Principal{User: u, TenantID: u.TenantID, IsSuper: isSuper, Roles: roleCodes, Permissions: perms}, nil
 }
 
@@ -267,10 +277,16 @@ func (s *Service) Logout(refresh string) {
 	s.db.Model(&model.AuthToken{}).Where("jti = ?", parts[0]).Update("revoked", true)
 }
 
+// RevokeUserTokens 吊销该用户全部刷新令牌：改口令/被管理员重置口令后旧会话立即无法续期
+func (s *Service) RevokeUserTokens(userID uint) error {
+	return s.db.Model(&model.AuthToken{}).Where("user_id = ?", userID).Update("revoked", true).Error
+}
+
 // ParseToken 解析访问令牌
 func (s *Service) ParseToken(token string) (*Claims, error) {
 	c := &Claims{}
-	if _, err := jwt.ParseWithClaims(token, c, func(*jwt.Token) (any, error) { return s.key, nil }); err != nil {
+	if _, err := jwt.ParseWithClaims(token, c, func(*jwt.Token) (any, error) { return s.key, nil },
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()})); err != nil {
 		return nil, errors.New("登录已失效，请重新登录")
 	}
 	return c, nil

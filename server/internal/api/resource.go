@@ -1,8 +1,13 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -77,11 +82,17 @@ func (h *Handlers) CreateProject(c *gin.Context) {
 		p.FixMode = model.FixModeSemi
 	}
 	p.ReleaseHook = "" // 发布钩子仅配置文件可改，忽略 Web 写入
-	p.TenantID = h.tenant(c)
+	tid, ok := h.requireWriteTenant(c)
+	if !ok {
+		return
+	}
+	p.TenantID = tid
 	if err := h.tdb(c).Create(&p).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
+	slog.Info("项目已创建", "request_id", RequestID(c), "operator_id", h.principalID(c),
+		"project_id", p.ID, "tenant_id", p.TenantID, "key", p.Key)
 	OK(c, p)
 }
 
@@ -98,6 +109,9 @@ func (h *Handlers) GetProject(c *gin.Context) {
 	}
 	var repos []model.Repository
 	h.tdb(c).Preload("Credential").Preload("Model").Preload("ReviewModel").Where("project_id = ?", id).Find(&repos)
+	for i := range repos {
+		h.scrubForeignCredential(h.tenant(c), &repos[i])
+	}
 	var rules []model.Rule
 	h.tdb(c).Where("project_id = ?", id).Order("priority DESC, id ASC").Find(&rules)
 	var tokens []model.IngestToken
@@ -137,8 +151,20 @@ func (h *Handlers) DeleteProject(c *gin.Context) {
 		tx.Where("project_id = ?", id).Delete(&model.Repository{})
 		tx.Where("project_id = ?", id).Delete(&model.Rule{})
 		tx.Where("project_id = ?", id).Delete(&model.IngestToken{})
-		return tx.Delete(&model.Project{}, id).Error
+		res := tx.Delete(&model.Project{}, id)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			// 非本租户/不存在的项目：整体回滚，避免删掉关联数据后仍返回成功
+			return gorm.ErrRecordNotFound
+		}
+		return nil
 	}); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			NotFound(c, "项目不存在")
+			return
+		}
 		ServerError(c, err)
 		return
 	}
@@ -159,6 +185,9 @@ func (h *Handlers) ListRepos(c *gin.Context) {
 	if err := q.Order("id DESC").Offset((page - 1) * size).Limit(size).Find(&list).Error; err != nil {
 		ServerError(c, err)
 		return
+	}
+	for i := range list {
+		h.scrubForeignCredential(h.tenant(c), &list[i])
 	}
 	OKPage(c, list, Page{Page: page, PageSize: size, Total: total})
 }
@@ -181,11 +210,16 @@ func (h *Handlers) CreateRepo(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if r.CredentialID != nil && !h.requireTenantOfCredential(c, tid, *r.CredentialID) {
+		return
+	}
 	r.TenantID = tid
 	if err := h.tdb(c).Create(&r).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
+	slog.Info("仓库已创建", "request_id", RequestID(c), "operator_id", h.principalID(c),
+		"repo_id", r.ID, "project_id", r.ProjectID, "tenant_id", r.TenantID)
 	OK(c, r)
 }
 
@@ -200,6 +234,7 @@ func (h *Handlers) GetRepo(c *gin.Context) {
 		NotFound(c, "仓库不存在")
 		return
 	}
+	h.scrubForeignCredential(h.tenant(c), &r)
 	OK(c, r)
 }
 
@@ -214,11 +249,28 @@ func (h *Handlers) UpdateRepo(c *gin.Context) {
 		NotFound(c, "仓库不存在")
 		return
 	}
+	// 请求体只能绑定一次：先探测 credential_id 的租户归属，再把请求体交回 saveUpdates
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		BadRequest(c, err)
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	var probe struct {
+		CredentialID *uint `json:"credential_id"`
+	}
+	if err := json.Unmarshal(raw, &probe); err == nil && probe.CredentialID != nil {
+		if !h.requireTenantOfCredential(c, r.TenantID, *probe.CredentialID) {
+			return
+		}
+	}
 	if !h.saveUpdates(c, h.tdb(c), &r,
 		"name", "url", "branch", "code_paths", "language", "credential_id",
 		"model_id", "review_model_id", "auto_push", "enabled") {
 		return
 	}
+	slog.Info("仓库已更新", "request_id", RequestID(c), "operator_id", h.principalID(c),
+		"repo_id", r.ID, "tenant_id", r.TenantID)
 	OK(c, r)
 }
 
@@ -228,27 +280,29 @@ func (h *Handlers) DeleteRepo(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
-	if err := h.tdb(c).Delete(&model.Repository{}, id).Error; err != nil {
-		ServerError(c, err)
+	res := h.tdb(c).Delete(&model.Repository{}, id)
+	if res.Error != nil {
+		ServerError(c, res.Error)
 		return
 	}
+	if res.RowsAffected == 0 {
+		// 不存在或不属于当前租户：不能回 200 假成功
+		NotFound(c, "仓库不存在")
+		return
+	}
+	slog.Info("仓库已删除", "request_id", RequestID(c), "operator_id", h.principalID(c),
+		"repo_id", id, "tenant_id", h.tenant(c))
 	OK(c, gin.H{"deleted": id})
 }
 
 // TestRepo 连通性测试（ls-remote）
 func (h *Handlers) TestRepo(c *gin.Context) {
-	id, ok := ParseID(c, "id")
+	r, ok := h.loadRepo(c)
 	if !ok {
-		BadRequest(c, "id 非法")
-		return
-	}
-	var r model.Repository
-	if err := h.tdb(c).Preload("Credential").Preload("Project").First(&r, id).Error; err != nil {
-		NotFound(c, "仓库不存在")
 		return
 	}
 	start := time.Now()
-	err := h.exec.TestRepo(c.Request.Context(), &r)
+	err := h.exec.TestRepo(c.Request.Context(), r)
 	usage := model.CredentialUsage{
 		TenantID: r.TenantID, RefType: "repo", RefID: r.ID, Action: "test", CreatedAt: time.Now(),
 	}
@@ -279,7 +333,19 @@ func (h *Handlers) loadRepo(c *gin.Context) (*model.Repository, bool) {
 		NotFound(c, "仓库不存在")
 		return nil, false
 	}
+	// 历史脏数据（跨租户 credential_id）不得用于认证：否则会把他人凭证明文发到仓库地址指向的服务器
+	if r.CredentialID != nil && *r.CredentialID != 0 && (r.Credential == nil || r.Credential.TenantID != r.TenantID) {
+		Fail(c, http.StatusBadRequest, "仓库绑定的凭证不属于该租户，请重新绑定后再操作")
+		return nil, false
+	}
 	return &r, true
+}
+
+// scrubForeignCredential 读取路径不回显非本租户凭证的名称/用户名/类型（历史脏数据兜底）
+func (h *Handlers) scrubForeignCredential(tid uint, r *model.Repository) {
+	if tid != 0 && r.Credential != nil && r.Credential.TenantID != tid {
+		r.Credential = nil
+	}
 }
 
 func (h *Handlers) recordRepoUsage(r *model.Repository, action, result, message string) {
@@ -499,11 +565,17 @@ func (h *Handlers) CreateCredential(c *gin.Context) {
 		BadRequest(c, err)
 		return
 	}
-	cd.TenantID = h.tenant(c)
+	tid, ok := h.requireWriteTenant(c)
+	if !ok {
+		return
+	}
+	cd.TenantID = tid
 	if err := h.tdb(c).Create(cd).Error; err != nil {
 		BadRequest(c, err)
 		return
 	}
+	slog.Info("凭证已创建", "request_id", RequestID(c), "operator_id", h.principalID(c),
+		"credential_id", cd.ID, "tenant_id", cd.TenantID, "type", cd.Type)
 	OK(c, cd)
 }
 
@@ -588,10 +660,17 @@ func (h *Handlers) DeleteCredential(c *gin.Context) {
 		BadRequest(c, fmt.Sprintf("仍有 %d 个仓库引用该凭证，请先解除引用", n))
 		return
 	}
-	if err := h.tdb(c).Delete(&model.Credential{}, id).Error; err != nil {
-		ServerError(c, err)
+	res := h.tdb(c).Delete(&model.Credential{}, id)
+	if res.Error != nil {
+		ServerError(c, res.Error)
 		return
 	}
+	if res.RowsAffected == 0 {
+		NotFound(c, "凭证不存在")
+		return
+	}
+	slog.Info("凭证已删除", "request_id", RequestID(c), "operator_id", h.principalID(c),
+		"credential_id", id, "tenant_id", h.tenant(c))
 	OK(c, gin.H{"deleted": id})
 }
 
@@ -607,6 +686,11 @@ func (h *Handlers) ListCredentialUsages(c *gin.Context) {
 	if err := q.Offset((page - 1) * size).Limit(size).Find(&list).Error; err != nil {
 		ServerError(c, err)
 		return
+	}
+	for i := range list {
+		if list[i].Credential != nil && list[i].Credential.TenantID != list[i].TenantID {
+			list[i].Credential = nil
+		}
 	}
 	OKPage(c, list, Page{Page: page, PageSize: size, Total: total})
 }

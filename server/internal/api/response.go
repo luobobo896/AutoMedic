@@ -1,10 +1,14 @@
 package api
 
 import (
+	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type Page struct {
@@ -40,7 +44,12 @@ func BadRequest(c *gin.Context, err any) {
 	msg := "参数错误"
 	switch v := err.(type) {
 	case error:
-		msg = v.Error()
+		if internalErr(v) {
+			// 解析/数据库原始错误含结构体字段名、SQL 与约束名：只进日志，响应回固定文案
+			slog.Warn("请求参数或数据非法", "request_id", RequestID(c), "err", v)
+		} else {
+			msg = v.Error()
+		}
 	case string:
 		msg = v
 	}
@@ -55,7 +64,17 @@ func NotFound(c *gin.Context, msg string) {
 }
 
 func ServerError(c *gin.Context, err error) {
-	Fail(c, http.StatusInternalServerError, err.Error())
+	slog.Error("服务内部错误", "request_id", RequestID(c), "err", err)
+	Fail(c, http.StatusInternalServerError, "服务器内部错误")
+}
+
+// internalErr 判断错误是否为「含内部实现细节」的原始错误（JSON 解析、存储约束）
+func internalErr(err error) bool {
+	var unmarshalType *json.UnmarshalTypeError
+	var syntax *json.SyntaxError
+	return errors.As(err, &unmarshalType) || errors.As(err, &syntax) ||
+		errors.Is(err, gorm.ErrDuplicatedKey) || errors.Is(err, gorm.ErrForeignKeyViolated) ||
+		errors.Is(err, gorm.ErrCheckConstraintViolated)
 }
 
 // QueryPage 解析分页参数

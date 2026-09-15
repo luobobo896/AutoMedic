@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/automedic/automedic/internal/auth"
 	"github.com/automedic/automedic/internal/config"
@@ -51,7 +52,7 @@ func SeedRBAC(db *gorm.DB, cfg *config.Config) error {
 	var count int64
 	db.Model(&model.User{}).Count(&count)
 	if count == 0 {
-		if cfg.Server.Mode == "release" && (pwd == "admin123" || pwd == "change-me") {
+		if cfg.Server.Mode == "release" && weakBootstrapPassword(pwd) {
 			return errors.New("生产模式拒绝使用默认引导口令，请设置 auth.bootstrap_admin.password 或 AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD")
 		}
 		hash, err := auth.HashPassword(pwd)
@@ -74,6 +75,16 @@ func SeedRBAC(db *gorm.DB, cfg *config.Config) error {
 		slog.Info("已创建引导管理员", "username", username, "password_hint", "请登录后立即修改密码")
 	}
 	return nil
+}
+
+// weakBootstrapPassword 判定出厂/占位引导口令：大小写与分隔符不敏感（ADMIN123、Change_Me、CHANGE-ME 一律拒绝）
+func weakBootstrapPassword(pwd string) bool {
+	norm := strings.NewReplacer("-", "", "_", "", " ", "").Replace(strings.ToLower(strings.TrimSpace(pwd)))
+	switch norm {
+	case "admin", "admin123", "admin888", "change", "changeme", "password", "passw0rd", "123456", "12345678", "qwerty", "default":
+		return true
+	}
+	return strings.Contains(norm, "changeme") || strings.Contains(norm, "admin123")
 }
 
 func roleName(code string) string {
@@ -125,8 +136,18 @@ func CreateTenantRoles(db *gorm.DB, tenantID uint) error {
 	return nil
 }
 
-// SetRolePermissions 设置角色权限（自动补齐/回收）
+// SetRolePermissions 设置角色权限（自动补齐/回收），允许写入平台专属权限码（平台角色与超管调用）
 func SetRolePermissions(db *gorm.DB, roleID uint, codes []string) error {
+	return setRolePermissions(db, roleID, codes, true)
+}
+
+// SetTenantRolePermissions 设置租户角色权限：平台专属权限码既不接受也不保留
+// （历史自授残留会在本次写入时被回收），保证租户角色无法持有跨租户/全局配置权限。
+func SetTenantRolePermissions(db *gorm.DB, roleID uint, codes []string) error {
+	return setRolePermissions(db, roleID, codes, false)
+}
+
+func setRolePermissions(db *gorm.DB, roleID uint, codes []string, allowPlatform bool) error {
 	// 白名单过滤：只接受权限目录中存在的码，忽略任意非法码
 	valid := make(map[string]bool, len(model.PermissionCatalog))
 	for _, p := range model.PermissionCatalog {
@@ -136,6 +157,10 @@ func SetRolePermissions(db *gorm.DB, roleID uint, codes []string) error {
 	for _, c := range codes {
 		if !valid[c] {
 			slog.Warn("忽略非法的角色权限码", "role_id", roleID, "code", c)
+			continue
+		}
+		if !allowPlatform && model.PlatformOnlyPermissions[c] {
+			slog.Warn("忽略平台专属权限码，仅平台超管可授予", "role_id", roleID, "code", c)
 			continue
 		}
 		want[c] = true

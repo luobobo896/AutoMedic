@@ -41,6 +41,45 @@ func (h *Handlers) principal(c *gin.Context) *auth.Principal {
 	return auth.Current(c)
 }
 
+// principalID 当前主体用户 ID（未登录返回 0）
+func (h *Handlers) principalID(c *gin.Context) uint {
+	if p := h.principal(c); p != nil {
+		return p.User.ID
+	}
+	return 0
+}
+
+// isSuper 当前主体是否平台超管
+func (h *Handlers) isSuper(c *gin.Context) bool {
+	p := h.principal(c)
+	return p != nil && p.IsSuper
+}
+
+// requireWriteTenant 写操作必须落在明确的租户上。
+// 平台超管未通过 X-Tenant-ID 指定租户时 tenant(c)=0，直接写库会产生任何租户都看不到的 tenant_id=0 孤儿数据。
+func (h *Handlers) requireWriteTenant(c *gin.Context) (uint, bool) {
+	tid := h.tenant(c)
+	if tid == 0 {
+		Fail(c, http.StatusBadRequest, "请在 X-Tenant-ID 指定租户后再写入")
+		return 0, false
+	}
+	return tid, true
+}
+
+// requireTenantOfCredential 校验凭证属于指定租户：仓库只能引用同租户凭证，
+// 否则可借他人 git 凭证把密钥发到攻击者服务器。
+func (h *Handlers) requireTenantOfCredential(c *gin.Context, tid, credentialID uint) bool {
+	if credentialID == 0 {
+		return true
+	}
+	var cd model.Credential
+	if err := h.db.Select("id", "tenant_id").First(&cd, credentialID).Error; err != nil || cd.TenantID != tid {
+		Fail(c, http.StatusBadRequest, "凭证不存在或不属于当前租户")
+		return false
+	}
+	return true
+}
+
 // tenantOfProject 取项目所属租户，并校验归属
 func (h *Handlers) tenantOfProject(tid, projectID uint) (uint, bool) {
 	if projectID == 0 {
