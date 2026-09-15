@@ -4,7 +4,7 @@ server:
   addr: "127.0.0.1:8087"
   mode: "release"
   web_dir: "/opt/automedic/web/dist"
-  admin_token: ""
+  admin_token: ""   # 已废弃（无中间件读取），保留字段仅为兼容旧配置
   read_timeout: 60
   write_timeout: 300
 

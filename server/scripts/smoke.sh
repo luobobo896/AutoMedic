@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
-# AutoMedic 冒烟测试：项目 → 仓库 → 规则 → 令牌 → 投递事件 → 任务
+# AutoMedic 冒烟测试：登录取 JWT → 项目 → 仓库 → 规则 → 令牌 → 投递事件 → 任务
 set -euo pipefail
 
 BASE="${BASE:-http://127.0.0.1:8080}"
-TOKEN="${ADMIN_TOKEN:-change-me}"
+ADMIN_USER="${ADMIN_USER:-admin}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-${AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD:-}}"
+REPO_URL="${REPO_URL:-https://github.com/example/shop-api.git}"
 export no_proxy="*" NO_PROXY="*"
-H=(-H "Content-Type: application/json" -H "X-Admin-Token: $TOKEN")
 
 say() { printf '\n\033[36m== %s ==\033[0m\n' "$1"; }
+
+say "登录取 JWT（管理面已废弃 X-Admin-Token）"
+[[ -n "$ADMIN_PASSWORD" ]] || { echo "请设置 ADMIN_PASSWORD 或 AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD" >&2; exit 1; }
+LOGIN=$(curl -s -X POST "$BASE/api/v1/auth/login" -H "Content-Type: application/json" \
+  -d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}")
+TOKEN=$(printf '%s' "$LOGIN" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+[[ -n "$TOKEN" ]] || { echo "登录失败：$LOGIN" >&2; exit 1; }
+echo "已获取 access_token"
+H=(-H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN")
 
 say "健康检查"
 curl -s "$BASE/healthz"; echo

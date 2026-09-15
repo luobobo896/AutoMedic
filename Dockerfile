@@ -11,8 +11,8 @@
 # ---------- Stage 1: web ----------
 FROM node:22-alpine AS webbuild
 WORKDIR /src/web
-COPY web/package.json ./
-RUN npm install --no-audit --no-fund
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
@@ -52,7 +52,8 @@ WORKDIR /app
 COPY --from=serverbuild /out/automedic-server /app/automedic-server
 COPY --from=webbuild    /src/web/dist          /app/web/dist
 COPY server/configs/config.docker.yaml        /app/configs/config.yaml
-COPY server/migrations                        /app/migrations
+# 手工/破坏性迁移 SQL 按约定放在 docs/database/（详见 server/migrations/README.md）
+COPY docs/database                            /app/migrations
 
 # 以非 root 用户运行：创建 appuser，确保 /app（含数据卷、启动脚本、二进制）归其所有。
 # 顺序要求：useradd/chown 必须在 COPY 之后、VOLUME 之前；apt-get install 已在上方（切换 USER 前）完成。
@@ -66,7 +67,7 @@ EXPOSE 8080
 ENV AUTOMEDIC_SERVER_ADDR=:8080 \
     AUTOMEDIC_SERVER_WEB_DIR=/app/web/dist \
     AUTOMEDIC_DB_DRIVER=postgres \
-    AUTOMEDIC_DB_DSN="host=postgres user=automedic password=automedic dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai" \
+    AUTOMEDIC_DB_DSN="host=postgres user=automedic password=CHANGE_ME dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai" \
     AUTOMEDIC_DSH_BIN=/usr/local/bin/dsh \
     AUTOMEDIC_GIT_WORKSPACE_ROOT=/app/data/workspaces \
     AUTOMEDIC_SECURITY_SECRET_KEY_FILE=/app/data/.secret_key

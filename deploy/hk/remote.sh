@@ -13,6 +13,10 @@ PUBLIC_HOST="${AUTOMEDIC_PUBLIC_HOST:-hk.hsddns.com}"
 PUBLIC_PATH="${AUTOMEDIC_PUBLIC_PATH:-/automedic}"
 SKIP_DEPS="${AUTOMEDIC_SKIP_DEPS:-0}"
 NGINX_SITE="${AUTOMEDIC_NGINX_SITE:-/etc/nginx/sites-enabled/whatsapp-ai-hk}"
+# 工具链钉死版本（与 Dockerfile 一致），需要升级时显式覆盖环境变量
+GO_VERSION="${AUTOMEDIC_GO_VERSION:-go1.23.12}"
+DSH_VERSION="${AUTOMEDIC_DSH_VERSION:-0.1.2-rc.1}"
+OCR_VERSION="${AUTOMEDIC_OCR_VERSION:-1.12.1}"
 
 export DEBIAN_FRONTEND=noninteractive
 export LANG=C LC_ALL=C
@@ -55,42 +59,29 @@ semver_ge() {
   [[ "$(printf '%s\n%s\n' "$b" "$a" | sort -V | tail -n1)" == "$a" ]]
 }
 
-ensure_go_latest() {
-  local current latest url tmp
+ensure_go() {
+  local current url tmp
   current="$(go version 2>/dev/null | awk '{print $3}' || true)"
-  latest="$(curl -fsSL --max-time 20 'https://go.dev/VERSION?m=text' 2>/dev/null | head -n1 || true)"
-  if [[ -z "$latest" ]]; then
-    latest="$(curl -fsSL --max-time 20 'https://golang.google.cn/VERSION?m=text' 2>/dev/null | head -n1 || true)"
-  fi
-  if [[ -z "$latest" ]]; then
-    if [[ -n "$current" ]] && semver_ge "$current" "go1.23"; then
-      log "WARN 无法查询最新 Go，保留已满足构建要求的 $current"
-      return 0
-    fi
-    die "无法查询最新 Go，且本机 Go 不满足 >=1.23"
-  fi
-  if [[ "$current" == "$latest" ]]; then
+  if [[ "$current" == "$GO_VERSION" ]]; then
     skip "Go" "$current"
     return 0
   fi
-  log "INSTALL Go（${current:-未安装} -> $latest）"
+  log "INSTALL Go（${current:-未安装} -> $GO_VERSION）"
   tmp="$(mktemp -d)"
-  url="https://go.dev/dl/${latest}.linux-amd64.tar.gz"
+  url="https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz"
   if ! curl -fL --max-time 180 -o "$tmp/go.tgz" "$url"; then
-    url="https://mirrors.aliyun.com/golang/${latest}.linux-amd64.tar.gz"
-    curl -fL --max-time 180 -o "$tmp/go.tgz" "$url" || die "下载 Go $latest 失败"
+    url="https://mirrors.aliyun.com/golang/${GO_VERSION}.linux-amd64.tar.gz"
+    curl -fL --max-time 180 -o "$tmp/go.tgz" "$url" || die "下载 Go $GO_VERSION 失败"
   fi
   rm -rf /usr/local/go
   tar -C /usr/local -xzf "$tmp/go.tgz"
   rm -rf "$tmp"
   hash -r
-  go version | grep -q "$latest" || die "Go 安装后版本不是 $latest"
+  go version | grep -q "$GO_VERSION" || die "Go 安装后版本不是 $GO_VERSION"
 }
 
 ensure_npm_global() {
-  local pkg="$1"
-  local latest current
-  latest="$(npm view "$pkg" version)"
+  local pkg="$1" want="$2" current
   current="$(
     set +o pipefail
     npm ls -g --depth=0 --json 2>/dev/null | python3 -c "
@@ -103,12 +94,12 @@ deps = data.get('dependencies') or {}
 print((deps.get('$pkg') or {}).get('version') or '')
 "
   )"
-  if [[ -n "$current" && "$current" == "$latest" ]]; then
+  if [[ "$current" == "$want" ]]; then
     skip "npm:$pkg" "$current"
     return 0
   fi
-  log "INSTALL npm:$pkg（${current:-未安装} -> $latest）"
-  npm install -g "${pkg}@${latest}" --no-audit --no-fund --ignore-scripts=false
+  log "INSTALL npm:$pkg（${current:-未安装} -> $want）"
+  npm install -g "${pkg}@${want}" --no-audit --no-fund
 }
 
 ensure_user() {
@@ -216,13 +207,15 @@ ensure_secrets() {
     skip "secret_key_file" "已存在"
   fi
   if [[ ! -f "$envf" ]]; then
-    local token
-    token="$(openssl rand -hex 24)"
+    local admin_pwd jwt
+    admin_pwd="$(openssl rand -hex 24)"
+    jwt="$(openssl rand -hex 32)"
     cat > "$envf" <<EOF
 AUTOMEDIC_SERVER_ADDR=${LISTEN}
 AUTOMEDIC_SERVER_MODE=release
 AUTOMEDIC_SERVER_WEB_DIR=${ROOT}/web/dist
-AUTOMEDIC_SERVER_ADMIN_TOKEN=${token}
+AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD=${admin_pwd}
+AUTOMEDIC_AUTH_JWT_SECRET=${jwt}
 AUTOMEDIC_DB_DRIVER=postgres
 AUTOMEDIC_DB_DSN=host=/var/run/postgresql user=automedic dbname=automedic sslmode=disable TimeZone=Asia/Shanghai
 AUTOMEDIC_SECURITY_SECRET_KEY_FILE=${keyf}
@@ -230,8 +223,8 @@ AUTOMEDIC_DSH_HOME=${ROOT}/data/.dsh
 AUTOMEDIC_GIT_WORKSPACE_ROOT=${ROOT}/data/workspaces
 EOF
     chmod 600 "$envf"
-    log "已写入首次管理令牌到 $envf（AUTOMEDIC_SERVER_ADMIN_TOKEN）"
-    log "FIRST_ADMIN_TOKEN=${token}"
+    log "已写入首次登录口令到 $envf（AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD）"
+    log "FIRST_ADMIN_PASSWORD=${admin_pwd}"
   else
     skip ".env" "已存在，不覆盖密钥"
   fi
@@ -270,7 +263,7 @@ build_from_source() {
   (cd "$SRC/server" && GOPROXY="${GOPROXY:-https://goproxy.cn,https://proxy.golang.org,direct}" \
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/automedic-server ./cmd/server)
   log "构建前端（base=${PUBLIC_PATH}/）"
-  (cd "$SRC/web" && npm install --no-audit --no-fund)
+  (cd "$SRC/web" && npm ci --no-audit --no-fund)
   (cd "$SRC/web" && \
     VITE_BASE="${PUBLIC_PATH}/" \
     VITE_API_BASE="${PUBLIC_PATH}/api" \
@@ -286,7 +279,7 @@ install_release() {
   mkdir -p "$ROOT/web"
   cp -a "$SRC/web/dist" "$ROOT/web/dist"
   mkdir -p "$ROOT/migrations"
-  cp -a "$SRC/server/migrations/." "$ROOT/migrations/"
+  cp -a "$SRC/docs/database/." "$ROOT/migrations/"
   install -m 644 "$SRC/deploy/hk/automedic.service" /etc/systemd/system/automedic.service
   if [[ -n "${AUTOMEDIC_RELEASE_ID:-}" ]]; then
     printf '%s\n' "$AUTOMEDIC_RELEASE_ID" > "$ROOT/RELEASE"
@@ -386,9 +379,9 @@ main() {
     ensure_apt_pkg postgresql-client
     ensure_apt_pkg rsync
     ensure_apt_pkg nodejs
-    ensure_go_latest
-    ensure_npm_global "@deepseek-ai/dsh"
-    ensure_npm_global "@alibaba-group/open-code-review"
+    ensure_go
+    ensure_npm_global "@deepseek-ai/dsh" "$DSH_VERSION"
+    ensure_npm_global "@alibaba-group/open-code-review" "$OCR_VERSION"
     command -v dsh >/dev/null || die "dsh 安装后仍不可执行"
     command -v ocr >/dev/null || die "ocr 安装后仍不可执行"
     log "dsh: $(command -v dsh) $(dsh --version 2>/dev/null || true)"

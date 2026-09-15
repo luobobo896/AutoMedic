@@ -55,11 +55,13 @@
 
 ```bash
 cp .env.example .env
-# 生成并填入 AUTOMEDIC_ADMIN_TOKEN；AUTOMEDIC_SECRET_KEY 建议留空，容器会自动生成
-openssl rand -hex 24
+# 生成并填入两个必填口令（缺任意一个 docker compose 会直接报错）
+openssl rand -hex 24   # → AUTOMEDIC_DB_PASSWORD
+openssl rand -hex 24   # → AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD
+# AUTOMEDIC_SECRET_KEY / AUTOMEDIC_JWT_SECRET 建议留空：容器自动生成并复用加密主密钥
 
 docker compose up -d
-open http://localhost:8080
+open http://localhost:8080   # 用 admin + AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD 登录
 ```
 
 ### 本地开发
@@ -98,8 +100,9 @@ automedic/
 │       ├── store/               # 数据库（PostgreSQL）、迁移、默认数据
 │       └── ws/                  # WebSocket Hub（任务终端广播）
 ├── web/                         # Vue3 + Element Plus 前端
-│   └── src/views/               # 13 个页面：概览/项目/仓库/规则/凭证/模型配置/
-│                                #   令牌/事件/任务/任务详情/统计/设置/目录树/审查
+│   └── src/views/               # 21 个页面：概览/项目/仓库/规则/凭证/模型配置/令牌/事件/
+│                                #   任务/任务详情/统计/设置/目录树/审查(+抽屉)/登录/
+│                                #   用户/角色/租户/字典/无权限
 ├── deploy/                      # systemd 单元、Nginx 反代、可选 ingest sidecar
 ├── scripts/                     # build.sh / dev.sh / test.sh
 ├── docs/                        # 部署 / 接口 / dsh 集成 / 采集接入（Sentry、Loki）
@@ -151,7 +154,7 @@ automedic/
 
 | 文档 | 内容 |
 | --- | --- |
-| [docs/部署文档.md](docs/部署文档.md) | Docker / 裸机 / MySQL 三种部署方式、配置项全解、初始化清单、运维排障、安全基线 |
+| [docs/部署文档.md](docs/部署文档.md) | Docker / 裸机（systemd）/ HK 测试机三种部署方式、配置项全解、初始化清单、运维排障、安全基线 |
 | [docs/接口文档.md](docs/接口文档.md) | 全部 REST 接口与 WebSocket 协议、请求/响应示例、状态机、端到端 curl 示例 |
 | [docs/dsh集成说明.md](docs/dsh集成说明.md) | dsh headless 调用形态、`--patch` 模型上下文注入、日志采集链路、结果解析约定 |
 | [docs/采集接入.md](docs/采集接入.md) | Sentry / Loki 字段映射、Grafana webhook 模板、可选 sidecar |
@@ -163,7 +166,8 @@ automedic/
 
 - `security.secret_key` 用于加密凭证与 API Key，**上线后不可随意更改**（更换会导致已存数据无法解密）。
 - `dsh.permission_mode` 默认 `workspace-write`，dsh 只能在隔离工作区内写文件。生产环境不要改为 `danger-full-access`。
-- 管理令牌 `server.admin_token` 与投递令牌请分别配置，投递令牌建议绑定来源 IP 与过期时间。
+- 首次登录口令由 `AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD` 注入（`admin_token` 已废弃，无中间件读取），
+  投递令牌请单独创建，建议绑定来源 IP 与过期时间。
 
 ---
 

@@ -1,6 +1,6 @@
 # ============================================================
 # AutoMedic — 事件驱动的 dsh 全自动/半自动 Bug 修复平台
-# 快速启动：docker compose up -d
+# 快速启动：cp .env.example .env 并填好两个必填口令（见 .env.example），再 docker compose up -d
 # 访问：http://localhost:8080
 #
 # ⚠️ 生产可复现性：请用语义版本 tag 固定镜像与 dsh 版本，例如：
@@ -15,13 +15,19 @@ services:
     image: pgvector/pgvector:pg17
     container_name: automedic-postgres
     restart: unless-stopped
+    stop_grace_period: 30s
     environment:
       POSTGRES_USER: automedic
-      POSTGRES_PASSWORD: ${AUTOMEDIC_DB_PASSWORD:-automedic}
+      POSTGRES_PASSWORD: ${AUTOMEDIC_DB_PASSWORD:?请在 .env 设置 AUTOMEDIC_DB_PASSWORD（生成：openssl rand -hex 24）}
       POSTGRES_DB: automedic
       TZ: Asia/Shanghai
     volumes:
       - automedic-pg:/var/lib/postgresql/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U automedic -d automedic"]
       interval: 5s
@@ -38,22 +44,30 @@ services:
     image: automedic/automedic:${AUTOMEDIC_IMAGE_TAG:-latest}
     container_name: automedic
     restart: unless-stopped
+    # 优雅关闭窗口：main.go 关闭超时 15s，默认 10s 会来不及
+    stop_grace_period: 30s
     ports:
       - "8080:8080"
     environment:
-      AUTOMEDIC_SERVER_ADMIN_TOKEN: ${AUTOMEDIC_ADMIN_TOKEN:-change-me}
       AUTOMEDIC_SECURITY_SECRET_KEY: ${AUTOMEDIC_SECRET_KEY:-}
       # 后端已支持的 JWT 签名密钥注入；空值则回退 security.secret_key
       AUTOMEDIC_AUTH_JWT_SECRET: ${AUTOMEDIC_JWT_SECRET:-}
+      # release 模式首启必需：引导管理员 admin 的初始口令，缺失时 compose 直接报错
+      AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD: ${AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD:?请在 .env 设置 AUTOMEDIC_AUTH_BOOTSTRAP_PASSWORD（生成：openssl rand -hex 24）}
       # 反向代理（Nginx 等）网关节点 IP；空值=不信任任何代理，ClientIP 取 TCP 对端
       AUTOMEDIC_SERVER_TRUSTED_PROXIES: ${AUTOMEDIC_TRUSTED_PROXIES:-}
       AUTOMEDIC_SERVER_MODE: release
       AUTOMEDIC_DB_DRIVER: postgres
-      AUTOMEDIC_DB_DSN: host=postgres user=automedic password=${AUTOMEDIC_DB_PASSWORD:-automedic} dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai
+      AUTOMEDIC_DB_DSN: host=postgres user=automedic password=${AUTOMEDIC_DB_PASSWORD:?请在 .env 设置 AUTOMEDIC_DB_PASSWORD（生成：openssl rand -hex 24）} dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai
       AUTOMEDIC_DSH_BIN: /usr/local/bin/dsh
       TZ: Asia/Shanghai
     volumes:
       - automedic-data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy

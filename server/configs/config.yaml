@@ -29,8 +29,9 @@ db:
   log_level: "warn"
 
 auth:
-  # 账号密码登录：JWT 签名密钥（生产环境请换成随机串并通过 AUTOMEDIC_AUTH_JWT_SECRET 注入）
-  jwt_secret: "CHANGE_ME_USE_AUTOMEDIC_AUTH_JWT_SECRET"
+  # 账号密码登录：JWT 签名密钥。留空即走 security.secret_key / secret_key_file / 随机兜底；
+  # release 模式会拒绝占位或 <32 字节的值，生产请用 AUTOMEDIC_AUTH_JWT_SECRET 注入随机串。
+  jwt_secret: ""
   access_token_ttl: 480    # 访问令牌有效期（分钟）
   refresh_token_ttl: 1440  # 刷新令牌有效期（分钟）
   bootstrap_admin:

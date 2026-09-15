@@ -2,6 +2,7 @@ package config
 
 import (
 	"crypto/rand"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -231,7 +232,25 @@ func Load(path string) (*Config, error) {
 	if cfg.Git.WorkspaceRoot == "" {
 		cfg.Git.WorkspaceRoot = "data/workspaces"
 	}
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// validate 生产模式拒绝占位 / 过短的 JWT 签名密钥：
+// 与「拒绝默认引导口令」同理，宁可启动失败也不接受可预测的签名密钥。
+// jwt_secret 留空不在此拦截——ResolveJWTSecret 会回退 secret_key(_file) 或随机密钥。
+func (c *Config) validate() error {
+	if c.Server.Mode != "release" || c.Auth.JWTSecret == "" {
+		return nil
+	}
+	s := c.Auth.JWTSecret
+	if len(s) < 32 || strings.Contains(strings.ToUpper(s), "CHANGE_ME") {
+		return &ConfigError{Msg: fmt.Sprintf(
+			"生产模式拒绝占位或过短的 auth.jwt_secret（当前 %d 字节，需 ≥32 字节）：请用 AUTOMEDIC_AUTH_JWT_SECRET 注入随机密钥", len(s))}
+	}
+	return nil
 }
 
 func applyEnv(cfg *Config) {

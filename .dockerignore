@@ -1,14 +1,17 @@
+# docs 只保留数据库脚本（Dockerfile 需要 COPY docs/database）
+docs/*
+!docs/database
 .git
 .gitignore
 .github
 .workbuddy
-docs
 .deploy-tmp
 node_modules
 web/node_modules
 web/dist
 server/bin
 server/data
+server/configs/config.local.yaml
 **/*.db
 **/*.log
 .env

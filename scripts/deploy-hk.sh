@@ -91,4 +91,4 @@ log "本机验收 https://hk.hsddns.com/automedic/healthz"
 curl -fsS --max-time 15 "https://hk.hsddns.com/automedic/healthz"
 echo
 log "完成。Web: https://hk.hsddns.com/automedic/"
-log "首次部署的管理令牌只在远端日志中打印一次（FIRST_ADMIN_TOKEN），之后保存在 /opt/automedic/.env"
+log "首次部署的引导口令只在远端日志中打印一次（FIRST_ADMIN_PASSWORD），之后保存在 /opt/automedic/.env"

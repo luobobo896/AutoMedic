@@ -7,7 +7,7 @@ server:
   addr: ":8080"               # AUTOMEDIC_SERVER_ADDR
   mode: "release"             # debug | release（生产务必 release）
   web_dir: "/app/web/dist"    # 前端构建产物目录，留空则不托管静态资源
-  admin_token: ""             # 管理 API 令牌；强烈建议用 AUTOMEDIC_SERVER_ADMIN_TOKEN 注入
+  admin_token: ""             # 已废弃（无中间件读取），保留字段仅为兼容旧配置
   read_timeout: 60            # 秒
   write_timeout: 300
   # 允许跨域的前端源，如 ["https://automedic.example.com"]；留空 = 不开放跨域（同源部署，推荐）
@@ -17,7 +17,8 @@ server:
 
 db:
   driver: "postgres"
-  dsn: "host=postgres user=automedic password=automedic dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai"
+  # 占位口令：compose 会强制注入 AUTOMEDIC_DB_PASSWORD 并覆盖本 DSN
+  dsn: "host=postgres user=automedic password=CHANGE_ME dbname=automedic port=5432 sslmode=disable TimeZone=Asia/Shanghai"
   max_open: 50
   max_idle: 10
   log_level: "warn"           # silent | error | warn | info

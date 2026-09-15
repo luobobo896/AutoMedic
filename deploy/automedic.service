@@ -17,7 +17,6 @@ User=automedic
 Group=automedic
 WorkingDirectory=/opt/automedic
 ExecStart=/opt/automedic/automedic-server -config /opt/automedic/configs/config.yaml
-ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

@@ -32,7 +32,7 @@ if [ "$SKIP_WEB" -eq 0 ]; then
   echo "==> 构建前端 (Vite)"
   if [ ! -d web/node_modules ]; then
     echo "    未找到 web/node_modules，先执行安装…"
-    (cd web && npm install --no-audit --no-fund)
+    (cd web && npm ci --no-audit --no-fund)
   fi
   (cd web && npm run build)
   echo "    产物: web/dist"

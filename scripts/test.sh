@@ -24,7 +24,7 @@ ensure_test_pg() {
       -e POSTGRES_USER=automedic \
       -e POSTGRES_PASSWORD=automedic \
       -e POSTGRES_DB=automedic_test \
-      -p 55432:5432 \
+      -p 127.0.0.1:55432:5432 \
       pgvector/pgvector:pg17 >/dev/null
   else
     echo "==> 复用测试 PostgreSQL 容器 $cid"

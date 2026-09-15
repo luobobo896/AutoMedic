@@ -4,12 +4,15 @@
 环境变量：
   AUTOMEDIC_INGEST_URL    默认 http://127.0.0.1:8080/api/v1/ingest/events
   AUTOMEDIC_INGEST_TOKEN  投递令牌（X-AM-Token）
-  SIDECAR_LISTEN          默认 :8091
+  SIDECAR_TOKEN           入站共享密钥（必填）：请求必须带 X-Sidecar-Token，否则 401
+  SIDECAR_LISTEN          默认 127.0.0.1:8091（只监听本机；不要直接暴露到公网）
+  SIDECAR_MAX_BODY        请求体上限字节数，默认 1 MiB，超出返回 413
 
 不转发密钥到日志。不是平台内置插件，可不部署。
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import sys
@@ -20,7 +23,13 @@ from typing import Any
 
 INGEST_URL = os.environ.get("AUTOMEDIC_INGEST_URL", "http://127.0.0.1:8080/api/v1/ingest/events")
 INGEST_TOKEN = os.environ.get("AUTOMEDIC_INGEST_TOKEN", "")
-LISTEN = os.environ.get("SIDECAR_LISTEN", ":8091")
+SIDECAR_TOKEN = os.environ.get("SIDECAR_TOKEN", "")
+LISTEN = os.environ.get("SIDECAR_LISTEN", "127.0.0.1:8091")
+MAX_BODY = int(os.environ.get("SIDECAR_MAX_BODY", str(1 << 20)))
+
+
+class BodyTooLarge(Exception):
+    """请求体超过 SIDECAR_MAX_BODY。"""
 
 
 def _s(v: Any) -> str:
@@ -141,7 +150,10 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("[sidecar] " + (fmt % args) + "\n")
 
     def _read_json(self) -> dict:
-        n = int(self.headers.get("Content-Length") or 0)
+        raw_len = self.headers.get("Content-Length") or "0"
+        n = int(raw_len) if raw_len.isdigit() else 0
+        if n > MAX_BODY:
+            raise BodyTooLarge()
         raw = self.rfile.read(n) if n else b"{}"
         if not raw:
             return {}
@@ -163,8 +175,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
+        if not hmac.compare_digest(self.headers.get("X-Sidecar-Token") or "", SIDECAR_TOKEN):
+            self._write(401, json.dumps({"message": "缺少或错误的 X-Sidecar-Token"}))
+            return
         try:
             body = self._read_json()
+        except BodyTooLarge:
+            self._write(413, json.dumps({"message": "请求体超过上限 %d 字节" % MAX_BODY}))
+            return
         except json.JSONDecodeError as e:
             self._write(400, json.dumps({"message": "invalid json: %s" % e}))
             return
@@ -195,9 +213,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    if not SIDECAR_TOKEN:
+        sys.stderr.write("[sidecar] 拒绝启动：必须设置 SIDECAR_TOKEN（入站共享密钥），否则任何人可伪造告警\n")
+        raise SystemExit(2)
     host, _, port = LISTEN.rpartition(":")
     if not host:
-        host = "0.0.0.0"
+        host = "127.0.0.1"
     httpd = ThreadingHTTPServer((host, int(port)), Handler)
     sys.stderr.write("[sidecar] listen %s%s -> %s\n" % (host, ":" + port, INGEST_URL))
     httpd.serve_forever()
