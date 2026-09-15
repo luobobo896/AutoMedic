@@ -5,7 +5,7 @@
         <div class="am-page-head__crumb">首页</div>
         <h1 class="am-page-head__title">凭证中心</h1>
         <p class="am-page-head__desc">
-          SSH 私钥 / 账号密码 / HTTP Token 统一加密存储（AES-256-GCM），可被多个项目与仓库复用，使用记录可追溯。
+          SSH 私钥、账号密码与 HTTP Token 统一加密（AES-256-GCM），可跨项目复用。
         </p>
       </div>
     </div>

@@ -149,8 +149,8 @@ function canCancel(row) {
 }
 
 function retryDisabledHint(row) {
-  if (row.status === 'success') return '任务已成功，无需重试'
-  if (['pending', 'running', 'confirming'].includes(row.status)) return '任务仍在进行中，不能重试'
+  if (row.status === 'success') return '流程已成功，无需重试'
+  if (['pending', 'running', 'confirming'].includes(row.status)) return '流程仍在进行中，不能重试'
   return '当前状态不能重试'
 }
 
@@ -162,7 +162,7 @@ async function retry(row) {
     if (r.data?.resume) {
       ElMessage.success('正在重试提交并推送，不会重新跑 dsh')
     } else {
-      ElMessage.success('已创建重试任务 #' + r.data.id)
+      ElMessage.success('已创建重试流程 #' + r.data.id)
     }
     await load()
   } finally { retryingId.value = 0 }

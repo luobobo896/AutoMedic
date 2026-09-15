@@ -38,7 +38,7 @@
           :disabled="!canRetry || !!acting"
           :loading="acting === 'retry'"
           :aria-disabled="!canRetry || !!acting"
-          :title="canRetry ? '' : (task.status === 'success' ? '任务已成功，无需重试' : '当前状态不能重试')"
+          :title="canRetry ? '' : (task.status === 'success' ? '流程已成功，无需重试' : '当前状态不能重试')"
           @click="canResumePush ? retryPushDo() : retryTaskDo()"
         >{{ canResumePush ? '重试推送' : '重试修复' }}</el-button>
         <el-button v-if="['pending','running'].includes(task.status)" :icon="'CircleClose'"
@@ -50,7 +50,7 @@
     <div class="am-card">
       <div class="am-toolbar">
         <span class="am-card__title">流程阶段</span>
-        <span class="am-text-dim am-hint">每个阶段的产出都能在下方日志、补丁与结果里逐条核对</span>
+        <span class="am-text-dim am-hint">每步产出都能在下方日志与结果里核对</span>
       </div>
       <div class="am-stage-rail">
         <div v-for="(s, i) in stages" :key="s.title" class="am-stage" :class="s.cls">
@@ -134,7 +134,7 @@
 
       <aside class="task-side" aria-label="任务信息与结果">
         <div class="am-card">
-          <div class="am-toolbar"><span class="am-card__title">任务信息</span></div>
+          <div class="am-toolbar"><span class="am-card__title">流程信息</span></div>
           <div class="am-meta-grid">
             <div>
               <div class="am-meta__label">项目 / 仓库</div>
@@ -187,7 +187,7 @@
         <div class="am-card">
           <div class="am-toolbar"><span class="am-card__title">人工确认</span></div>
           <template v-if="task.mode === 'auto'">
-            <div class="am-text-dim am-hint">全自动模式：修复完成后直接提交推送，无需人工确认。</div>
+            <div class="am-text-dim am-hint">全自动：修完直接提交推送，无需确认。</div>
           </template>
           <el-descriptions v-else :column="1" border size="small">
             <el-descriptions-item label="确认状态">
@@ -533,7 +533,7 @@ async function retryTaskDo() {
       await loadAll({ silent: true })
       return
     }
-    ElMessage.success('已创建重试任务 #' + r.data.id)
+    ElMessage.success('已创建重试流程 #' + r.data.id)
     if (r.data?.id) {
       await router.push('/tasks/' + r.data.id)
       return

@@ -27,7 +27,7 @@
 
     <div class="am-stat-grid am-stat-grid--3">
       <div class="am-stat">
-        <div class="label">任务总数</div>
+        <div class="label">流程总数</div>
         <div class="value">{{ ov.total || 0 }}</div>
         <div class="am-stat__hint">近 {{ days }} 天</div>
       </div>
@@ -102,7 +102,7 @@
       <div class="am-toolbar"><span class="am-card__title">明细数据</span></div>
       <el-table :data="byProject" size="small">
         <el-table-column prop="name" label="项目" min-width="160" />
-        <el-table-column prop="total" label="任务数" width="100" />
+        <el-table-column prop="total" label="流程数" width="100" />
         <el-table-column prop="success" label="成功" width="90" />
         <el-table-column prop="failed" label="失败" width="90" />
         <el-table-column prop="ignored" label="已忽略" width="90" />

@@ -404,7 +404,7 @@ async function fixSelected() {
   try {
     const r = await fixReviewJob(job.value.id, { keys: selected.value.map((x) => x.key) })
     createdIds.value = r.data?.task_ids || []
-    ElMessage.success(`已创建 ${createdIds.value.length} 个半自动修复任务`)
+    ElMessage.success(`已创建 ${createdIds.value.length} 个半自动修复流程`)
   } finally {
     fixing.value = false
   }

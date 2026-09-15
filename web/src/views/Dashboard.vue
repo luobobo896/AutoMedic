@@ -5,7 +5,7 @@
         <div class="am-page-head__crumb">首页</div>
         <h1 class="am-page-head__title">运营仪表盘</h1>
         <p class="am-page-head__desc">
-          告警进来后先看这一屏：进来多少事件、自动修好多少、卡在人工确认还是失败。
+          进来多少事件、自动修好多少、卡在哪一步。
         </p>
       </div>
       <div class="am-page-head__actions">
@@ -18,7 +18,7 @@
       <div class="am-stat">
         <div class="label">事件总数</div>
         <div class="value">{{ ov.events || 0 }}</div>
-        <div class="am-stat__hint">去重后的告警事件</div>
+        <div class="am-stat__hint">同指纹已合并</div>
       </div>
       <div class="am-stat">
         <div class="label">修复流程</div>
@@ -33,22 +33,22 @@
       <div class="am-stat">
         <div class="label">待人工确认</div>
         <div class="value am-value--warning">{{ t.confirming || 0 }}</div>
-        <div class="am-stat__hint">半自动流程等你点确认</div>
+        <div class="am-stat__hint">确认后才推送</div>
       </div>
       <div class="am-stat">
         <div class="label">失败流程</div>
         <div class="value am-value--danger">{{ t.failed || 0 }}</div>
-        <div class="am-stat__hint">可重试或重跑</div>
+        <div class="am-stat__hint">可重试</div>
       </div>
       <div class="am-stat">
         <div class="label">已忽略</div>
         <div class="value">{{ t.ignored || 0 }}</div>
-        <div class="am-stat__hint">判定为非代码问题</div>
+        <div class="am-stat__hint">非代码问题</div>
       </div>
       <div class="am-stat">
         <div class="label">平均自愈耗时</div>
         <div class="value">{{ formatDuration(ov.avg_duration_ms) }}</div>
-        <div class="am-stat__hint">含准备与推送</div>
+        <div class="am-stat__hint">端到端</div>
       </div>
       <div class="am-stat">
         <div class="label">今日修复成功</div>
@@ -60,7 +60,7 @@
     <div class="am-card">
       <div class="am-toolbar">
         <span class="am-card__title">最近流程</span>
-        <span class="am-text-dim am-hint">点任意一行进入流程监控，看卡在哪一步</span>
+        <span class="am-text-dim am-hint">点行进入流程监控</span>
         <div class="am-flex-1" />
         <el-button size="small" @click="$router.push('/tasks')">全部流程</el-button>
       </div>

@@ -239,7 +239,7 @@
                   <el-radio-button value="semi">半自动</el-radio-button>
                   <el-radio-button value="auto">全自动</el-radio-button>
                 </el-radio-group>
-                <div class="am-field-help">半自动需在「修复任务」确认后再推送；全自动直接提交。</div>
+                <div class="am-field-help">半自动需在「修复流程」确认后再推送；全自动直接提交。</div>
               </el-form-item>
               <el-form-item label="启用">
                 <el-switch v-model="form.enabled" />
@@ -436,7 +436,7 @@
       <ol class="am-guidelist">
         <li>在「投递令牌」建一个令牌，请求头用 <span class="am-mono">X-AM-Token</span> 带上它。</li>
         <li>让告警源（Sentry Webhook / Grafana Alerting / 自研脚本）POST 到下面的投递接口。</li>
-        <li>到「事件中心」确认收到；命中规则的事件会自动进入「修复任务」。</li>
+        <li>到「事件中心」确认收到；命中规则的事件会自动进入「修复流程」。</li>
       </ol>
       <div style="margin-top:14px">
         <div class="am-code__head">

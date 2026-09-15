@@ -5,7 +5,7 @@
         <div class="am-page-head__crumb">首页</div>
         <h1 class="am-page-head__title">事件中心</h1>
         <p class="am-page-head__desc">
-          告警入库的第一站。同一指纹的事件自动合并成一条；命中规则才开修复流程，非代码问题直接忽略。
+          告警入库的第一站。同指纹自动合并；命中规则才开修复流程。
         </p>
       </div>
       <div class="am-page-head__actions">

@@ -2,12 +2,99 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/automedic/automedic/internal/model"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+// dictUsage 字典项被业务表引用的次数：字典是唯一事实源，模型配置只能引用
+// 字典里存在的取值，因此删除/停用前必须能看见「谁在用」。
+type dictUsage struct {
+	Providers int      `json:"providers"`
+	Models    int      `json:"models"`
+	Samples   []string `json:"samples,omitempty"`
+}
+
+func (u *dictUsage) Total() int { return u.Providers + u.Models }
+
+// dictItemOut 在字典项原始字段上附带引用统计（前端据此显示「被 N 个模型引用」）
+type dictItemOut struct {
+	model.DictItem
+	Usage *dictUsage `json:"usage,omitempty"`
+}
+
+func dictUsageKey(group, value string) string { return group + "\x00" + value }
+
+// buildDictUsage 汇总厂家类型（providers.kind）与模型标识（llm_models.slug）的引用情况。
+// 只查两遍全表再在内存聚合，避免每个字典项一次查询。
+func buildDictUsage(db *gorm.DB) (map[string]*dictUsage, error) {
+	out := map[string]*dictUsage{}
+	ensure := func(key string) *dictUsage {
+		if u, ok := out[key]; ok {
+			return u
+		}
+		u := &dictUsage{}
+		out[key] = u
+		return u
+	}
+	type refRow struct {
+		Key  string
+		Name string
+	}
+	var providers []refRow
+	if err := db.Session(&gorm.Session{NewDB: true}).Model(&model.Provider{}).
+		Select("kind AS key, name AS name").Scan(&providers).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range providers {
+		if strings.TrimSpace(r.Key) == "" {
+			continue
+		}
+		u := ensure(dictUsageKey("provider_kind", r.Key))
+		u.Providers++
+		if len(u.Samples) < 3 {
+			u.Samples = append(u.Samples, r.Name)
+		}
+	}
+	var models []refRow
+	if err := db.Session(&gorm.Session{NewDB: true}).Model(&model.LLMModel{}).
+		Select("slug AS key, name AS name").Scan(&models).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range models {
+		if strings.TrimSpace(r.Key) == "" {
+			continue
+		}
+		u := ensure(dictUsageKey("model_slug", r.Key))
+		u.Models++
+		if len(u.Samples) < 3 {
+			u.Samples = append(u.Samples, r.Name)
+		}
+	}
+	return out, nil
+}
+
+// dictBlockReason 返回阻止删除的原因；空字符串表示可以删除。
+func dictBlockReason(u *dictUsage) string {
+	if u == nil || u.Total() == 0 {
+		return ""
+	}
+	parts := make([]string, 0, 2)
+	if u.Providers > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个厂家", u.Providers))
+	}
+	if u.Models > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个模型", u.Models))
+	}
+	where := strings.Join(parts, "、")
+	if len(u.Samples) > 0 {
+		return "该选项已被 " + where + "引用（" + strings.Join(u.Samples, "、") + "）；请先改掉引用或停用该选项"
+	}
+	return "该选项已被 " + where + "引用；请先改掉引用或停用该选项"
+}
 
 func (h *Handlers) ListDicts(c *gin.Context) {
 	var list []model.DictItem
@@ -22,7 +109,20 @@ func (h *Handlers) ListDicts(c *gin.Context) {
 		ServerError(c, err)
 		return
 	}
-	OK(c, gin.H{"list": list, "groups": dictGroups()})
+	// providers / llm_models 是全局配置表（无 tenant_id），不能走租户过滤
+	usage, err := buildDictUsage(h.db)
+	if err != nil {
+		ServerError(c, err)
+		return
+	}
+	items := make([]dictItemOut, 0, len(list))
+	for _, it := range list {
+		items = append(items, dictItemOut{
+			DictItem: it,
+			Usage:    usage[dictUsageKey(it.Group, it.Value)],
+		})
+	}
+	OK(c, gin.H{"list": items, "groups": dictGroups()})
 }
 
 func (h *Handlers) CreateDict(c *gin.Context) {
@@ -112,6 +212,11 @@ func (h *Handlers) DeleteDict(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
+	var item model.DictItem
+	if err := h.db.First(&item, id).Error; err != nil {
+		NotFound(c, "字典项不存在")
+		return
+	}
 	var n int64
 	if err := h.db.Model(&model.DictItem{}).Where("parent_id = ?", id).Count(&n).Error; err != nil {
 		ServerError(c, err)
@@ -119,6 +224,15 @@ func (h *Handlers) DeleteDict(c *gin.Context) {
 	}
 	if n > 0 {
 		BadRequest(c, "请先删除或移走子选项")
+		return
+	}
+	usage, err := buildDictUsage(h.db)
+	if err != nil {
+		ServerError(c, err)
+		return
+	}
+	if reason := dictBlockReason(usage[dictUsageKey(item.Group, item.Value)]); reason != "" {
+		BadRequest(c, reason)
 		return
 	}
 	if err := h.db.Delete(&model.DictItem{}, id).Error; err != nil {

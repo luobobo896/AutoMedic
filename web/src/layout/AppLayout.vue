@@ -27,7 +27,7 @@
           <el-button text :icon="collapsed ? 'Expand' : 'Fold'" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" @click="collapsed = !collapsed" />
         </div>
         <div class="header-right">
-          <el-tag size="small" type="info" effect="plain" class="dsh-tag">dsh --profile headless</el-tag>
+          <el-tag size="small" type="info" effect="plain" class="dsh-tag" title="当前 dsh 运行档：headless">dsh · headless</el-tag>
           <el-dropdown trigger="click" @command="onCommand">
             <span class="user-chip">
               <el-icon :size="16"><UserFilled /></el-icon>

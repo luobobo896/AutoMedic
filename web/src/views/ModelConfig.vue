@@ -4,163 +4,317 @@
       <div>
         <div class="am-page-head__crumb">首页</div>
         <h1 class="am-page-head__title">大模型配置</h1>
-        <p class="am-page-head__desc">厂家只配接入信息；输入/输出上下文在每个模型上设置，调用 dsh 时通过 patch 注入。</p>
+        <p class="am-page-head__desc">
+          厂家只配接入信息，模型逐个设置输入/输出上下文；下拉选项来自「选项字典」。
+        </p>
+      </div>
+      <div class="am-page-head__actions">
+        <el-button :icon="'Refresh'" aria-label="刷新" @click="load" />
+        <el-button :icon="'Plus'" @click="openProvider">新增厂家</el-button>
+        <el-button type="primary" :icon="'Plus'" :disabled="!providers.length" @click="openModel">新增模型</el-button>
       </div>
     </div>
 
-    <!-- 厂家 -->
-    <section class="am-section">
-      <div class="am-section-head">
-        <div>
-          <h3 class="am-section-title">大模型厂家</h3>
-          <p class="am-section-desc">点击卡片切换当前使用的厂家。</p>
-        </div>
-        <el-button :icon="'Plus'" @click="openProvider">新增厂家</el-button>
-      </div>
-      <div class="am-card-grid">
-        <div v-for="p in providers" :key="p.id" class="am-provider-card"
-          :class="{ 'is-active': current?.id === p.id }" @click="onSelectProvider(p)">
-          <div class="am-provider-top">
-            <span class="am-provider-name">{{ p.name }}</span>
-            <el-tag v-if="current?.id === p.id" class="am-pill am-pill-current" size="small">当前</el-tag>
-            <div class="am-flex-1" />
-            <el-button class="am-icon-btn" link :disabled="saving" @click.stop="editProvider(p)">
-              <el-icon><EditPen /></el-icon>
-            </el-button>
-            <el-button class="am-icon-btn am-icon-danger" link :disabled="saving" @click.stop="removeProvider(p)">
-              <el-icon><Delete /></el-icon>
-            </el-button>
-          </div>
-          <div class="am-provider-url am-mono">{{ p.base_url || '-' }}</div>
-          <div class="am-provider-meta">
-            <span class="am-pill">{{ p.kind || 'custom' }}</span>
-            <span class="am-pill">{{ p.key }}</span>
-            <span class="am-provider-count">{{ providerModelCount(p.id) }} 个模型</span>
-          </div>
-        </div>
-        <div v-if="!providers.length" class="am-card am-empty">暂无厂家，点击右上角「新增厂家」创建。</div>
-      </div>
-    </section>
+    <div class="am-seg-tabs" role="tablist" aria-label="大模型配置视图">
+      <button
+        v-for="t in tabs"
+        :key="t.key"
+        type="button"
+        role="tab"
+        class="am-seg-tabs__item"
+        :class="{ 'is-current': tab === t.key }"
+        :aria-selected="tab === t.key"
+        @click="tab = t.key"
+      >{{ t.label }}</button>
+    </div>
 
-    <!-- 模型 -->
-    <section class="am-section">
-      <div class="am-section-head">
+    <!-- 模型列表 -->
+    <div v-show="tab === 'models'" class="am-panel">
+      <div class="am-panel__body">
+        <div class="am-filterbar">
+          <el-input
+            v-model="modelKeyword"
+            class="am-filterbar__search"
+            placeholder="搜索模型名称、标识或厂家"
+            clearable
+            :prefix-icon="'Search'"
+          />
+          <el-select v-model="vendorFilter" clearable placeholder="全部厂家" style="width: 180px">
+            <el-option v-for="p in providers" :key="p.id" :label="p.name" :value="p.id" />
+          </el-select>
+          <button
+            v-for="s in statusFilters"
+            :key="s.key"
+            type="button"
+            class="am-chip-btn"
+            :class="{ 'is-on': statusFilter === s.key }"
+            @click="statusFilter = s.key"
+          >{{ s.label }}<span class="am-chip-btn__n">{{ statusCount(s.key) }}</span></button>
+          <button type="button" class="am-chip-btn" :class="{ 'is-on': onlyDefault }" @click="onlyDefault = !onlyDefault">
+            仅默认
+          </button>
+          <span class="am-filterbar__end">共 {{ filteredModels.length }} 个模型</span>
+        </div>
+
+        <el-table :data="filteredModels" v-loading="booting" size="small" row-key="id">
+          <el-table-column label="模型" min-width="240">
+            <template #default="{ row }">
+              <div class="am-cell-title">
+                {{ row.name }}
+                <el-tag v-if="row.is_default" type="primary" size="small">默认</el-tag>
+              </div>
+              <div class="am-cell-sub am-mono">{{ row.slug }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="厂家" width="170">
+            <template #default="{ row }">
+              <div>{{ providerName(row.provider_id) }}</div>
+              <div class="am-cell-sub">{{ providerKind(row.provider_id) || 'custom' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="输入上下文" width="120">
+            <template #default="{ row }">{{ formatTokens(row.input_context) }}</template>
+          </el-table-column>
+          <el-table-column label="输出长度" width="120">
+            <template #default="{ row }">{{ formatTokens(row.output_context) }}</template>
+          </el-table-column>
+          <el-table-column label="最大轮次" width="100">
+            <template #default="{ row }">{{ row.max_turns }}</template>
+          </el-table-column>
+          <el-table-column label="温度" width="90">
+            <template #default="{ row }">{{ row.temperature || '默认' }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-switch v-model="row.enabled" size="small" :disabled="saving" @change="v => toggleModel(row, v)" />
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="196">
+            <template #default="{ row }">
+              <el-button v-if="!row.is_default" link type="primary" :disabled="saving" @click="setDefault(row)">设为默认</el-button>
+              <el-button link type="primary" :disabled="saving" @click="editModel(row)">编辑</el-button>
+              <el-button link type="danger" :disabled="saving" @click="removeModel(row)">删除</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div class="am-empty am-empty--table">
+              <div class="am-empty__title">未找到模型</div>
+              <div class="am-empty__desc">
+                {{ providers.length ? '换个关键字或清空筛选；也可以直接新增一个模型。' : '先在「厂家接入」里添加一个厂家，再为它配置模型。' }}
+              </div>
+              <div class="am-empty__actions">
+                <el-button size="small" @click="tab = 'vendors'; providers.length ? null : openProvider()">
+                  {{ providers.length ? '去厂家接入' : '新增厂家' }}
+                </el-button>
+              </div>
+            </div>
+          </template>
+        </el-table>
+      </div>
+    </div>
+
+    <!-- 厂家接入 -->
+    <div v-show="tab === 'vendors'" class="am-panel">
+      <div class="am-panel__head">
         <div>
-          <h3 class="am-section-title">模型列表<span v-if="current" class="am-section-suffix">· {{ current.name }}</span></h3>
-          <p class="am-section-desc">输出上下文即最大输出长度，选项按模型官方规格过滤，超出能力范围的档位不可选。</p>
+          <h2 class="am-panel__title">厂家接入</h2>
+          <p class="am-panel__desc">
+            类型取自「选项字典 · 厂家类型」，选中类型自动带出标识与 Base URL；点击一行即切换当前使用的厂家。
+          </p>
         </div>
-        <el-button :icon="'Plus'" :disabled="!current" @click="openModel">新增模型</el-button>
-      </div>
-      <el-alert v-if="!current" type="info" :closable="false" show-icon
-        title="请先在上方选择一个厂家，然后为其配置模型。" class="am-alert" />
-      <div v-else class="am-model-list">
-        <div v-for="m in currentModels" :key="m.id" class="am-model-row">
-          <div class="am-model-info">
-            <div class="am-model-name">
-              {{ m.name }}
-              <el-tag v-if="m.is_default" class="am-pill am-pill-current" size="small">默认</el-tag>
-            </div>
-            <div class="am-model-sub">
-              <span class="am-mono">{{ m.slug }}</span>
-              <span class="am-pill">输入 {{ formatTokens(m.input_context) }}</span>
-              <span class="am-pill am-pill-accent">输出 {{ formatTokens(m.output_context) }}</span>
-              <span class="am-model-dim">最大 {{ m.max_turns }} 轮</span>
-            </div>
-          </div>
-          <div class="am-model-actions">
-            <el-button v-if="!m.is_default" link size="small" :disabled="saving" @click="setDefault(m)">设为默认</el-button>
-            <el-switch v-model="m.enabled" size="small" :disabled="saving" @change="v => toggleModel(m, v)" />
-            <el-button class="am-icon-btn" link :disabled="saving" @click="editModel(m)">
-              <el-icon><EditPen /></el-icon>
-            </el-button>
-            <el-button class="am-icon-btn am-icon-danger" link :disabled="saving" @click="removeModel(m)">
-              <el-icon><Delete /></el-icon>
-            </el-button>
-          </div>
+        <div class="am-panel__actions">
+          <router-link class="am-link" :to="{ path: '/dicts', query: { group: 'provider_kind' } }">维护厂家类型</router-link>
+          <el-button size="small" :icon="'Plus'" @click="openProvider">新增厂家</el-button>
         </div>
-        <div v-if="!currentModels.length" class="am-card am-empty">该厂家下暂无模型。</div>
       </div>
-    </section>
+      <div class="am-panel__body">
+        <el-table :data="providers" v-loading="booting" size="small" :row-class-name="providerRowClass" @row-click="onSelectProvider">
+          <el-table-column label="厂家" min-width="200">
+            <template #default="{ row }">
+              <div class="am-cell-title">
+                {{ row.name }}
+                <el-tag v-if="current?.id === row.id" type="primary" size="small">当前</el-tag>
+              </div>
+              <div class="am-cell-sub am-mono">{{ row.key }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="类型" width="160">
+            <template #default="{ row }">
+              <el-tag v-if="dictHasKind(row.kind)" size="small" effect="plain" :title="`字典显示名：${dictKindLabel(row.kind)}`">
+                <span class="am-mono">{{ row.kind }}</span>
+              </el-tag>
+              <el-tag v-else size="small" type="warning">字典缺失：{{ row.kind || '未填' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="Base URL" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }"><span class="am-mono">{{ row.base_url || '-' }}</span></template>
+          </el-table-column>
+          <el-table-column label="模型数" width="90">
+            <template #default="{ row }">{{ providerModelCount(row.id) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="130">
+            <template #default="{ row }">
+              <el-button link type="primary" :disabled="saving" @click.stop="editProvider(row)">编辑</el-button>
+              <el-button link type="danger" :disabled="saving" @click.stop="removeProvider(row)">删除</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div class="am-empty am-empty--table">
+              <div class="am-empty__title">还没有厂家</div>
+              <div class="am-empty__desc">厂家的「类型」来自选项字典，新增后即可为它配置模型。</div>
+              <div class="am-empty__actions">
+                <el-button size="small" type="primary" @click="openProvider">新增厂家</el-button>
+              </div>
+            </div>
+          </template>
+        </el-table>
+      </div>
+      <div class="am-panel__foot">
+        <div class="am-panel__stat">
+          <span>当前使用：<b>{{ current?.name || '未选择' }}</b></span>
+          <span>默认模型：<b>{{ defaultModel?.name || '未设置' }}</b></span>
+        </div>
+      </div>
+    </div>
 
     <!-- dsh 调用预览 -->
-    <section class="am-section">
-      <div class="am-section-head">
+    <div v-show="tab === 'preview'" class="am-panel">
+      <div class="am-panel__head">
         <div>
-          <h3 class="am-section-title">dsh 调用预览</h3>
-          <p class="am-section-desc">系统生成的 cordis patch 层与实际调用命令。</p>
+          <h2 class="am-panel__title">dsh 调用预览</h2>
+          <p class="am-panel__desc">按当前厂家与默认模型生成的 cordis patch 层、实际命令与环境变量。</p>
+        </div>
+        <div class="am-panel__actions">
+          <span class="am-text-dim am-hint">
+            {{ current?.name || '未选厂家' }} · {{ defaultModel?.slug || '未选模型' }}
+          </span>
         </div>
       </div>
-      <div class="am-diff" v-if="current && defaultModel">
-        <div class="hunk"># 系统生成的 cordis patch 层（--patch 注入）</div>
-        <div v-for="(l, i) in patchPreview" :key="i">{{ l }}</div>
-        <div class="hunk" style="margin-top:8px"># 实际调用命令</div>
-        <div>dsh --profile headless --patch /tmp/am-dsh-xxx/model.patch.yml "$(cat /tmp/am-dsh-xxx/task.txt)"</div>
-        <div class="hunk" style="margin-top:8px"># 环境变量</div>
-        <div>DSH_PERMISSION_MODE={{ settings.dsh?.permission_mode || 'workspace-write' }}</div>
-        <div>{{ envKeyPreview }}=******（未配置则沿用 dsh 自身凭证）</div>
+      <div class="am-panel__body">
+        <div class="am-diff" v-if="current && defaultModel">
+          <div class="hunk"># 系统生成的 cordis patch 层（--patch 注入）</div>
+          <div v-for="(l, i) in patchPreview" :key="i">{{ l }}</div>
+          <div class="hunk" style="margin-top:8px"># 实际调用命令</div>
+          <div>dsh --profile headless --patch /tmp/am-dsh-xxx/model.patch.yml "$(cat /tmp/am-dsh-xxx/task.txt)"</div>
+          <div class="hunk" style="margin-top:8px"># 环境变量</div>
+          <div>DSH_PERMISSION_MODE={{ settings.dsh?.permission_mode || 'workspace-write' }}</div>
+          <div>{{ envKeyPreview }}=******（未配置则沿用 dsh 自身凭证）</div>
+        </div>
+        <div v-else class="am-empty am-empty--table">
+          <div class="am-empty__title">还没有可预览的配置</div>
+          <div class="am-empty__desc">先在「厂家接入」选择厂家，并在「模型列表」里启用一个模型。</div>
+          <div class="am-empty__actions">
+            <el-button size="small" @click="tab = 'vendors'">去厂家接入</el-button>
+          </div>
+        </div>
       </div>
-      <div v-else class="am-card am-empty">选择厂家并配置启用模型后显示调用预览。</div>
-    </section>
+    </div>
 
     <!-- 厂家对话框 -->
-    <el-dialog v-model="providerDialog" :title="providerForm.id ? '编辑厂家' : '新增厂家'" width="560" class="am-dialog">
-      <p class="am-dialog-desc">厂家对接 OpenAI 兼容 API，API Key 加密存储。</p>
-      <el-form :model="providerForm" label-position="top" class="am-form">
-        <el-form-item label="类型">
-          <el-select v-model="providerForm.kind" style="width:100%" @change="onProviderKind">
-            <el-option v-for="p in dict.providerPresets()" :key="p.kind" :label="p.name" :value="p.kind" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="厂家名称"><el-input v-model="providerForm.name" placeholder="展示名称" /></el-form-item>
-        <el-form-item label="标识 key">
-          <el-input v-model="providerForm.key" placeholder="传给 dsh 的 provider 标识" />
-        </el-form-item>
-        <el-form-item label="Base URL"><el-input v-model="providerForm.base_url" placeholder="选类型后自动填，自定义可改" /></el-form-item>
-        <el-form-item label="API Key">
-          <el-input v-model="providerForm.api_key" type="password" show-password placeholder="留空则使用 dsh 自身凭证" />
-        </el-form-item>
-        <el-form-item label="备注"><el-input v-model="providerForm.remark" /></el-form-item>
-        <el-form-item label="启用"><el-switch v-model="providerForm.enabled" /></el-form-item>
-      </el-form>
+    <el-dialog v-model="providerDialog" :title="providerForm.id ? '编辑厂家' : '新增厂家'" width="620" class="am-dialog">
+      <p class="am-dialog-desc">厂家对接 OpenAI 兼容 API，API Key 加密存储；「类型」引用选项字典的厂家类型。</p>
+      <div class="am-form-stack">
+        <div class="am-form-cols">
+          <div class="am-field">
+            <label class="am-field__label" for="pv-kind">类型</label>
+            <el-select id="pv-kind" v-model="providerForm.kind" style="width:100%" @change="onProviderKind">
+              <el-option v-for="p in dict.providerPresets()" :key="p.kind" :label="p.name" :value="p.kind" />
+            </el-select>
+            <div class="am-field__origin">
+              来自选项字典 · 厂家类型（{{ dictProviderKinds.length }} 项）
+              <router-link class="am-link" :to="{ path: '/dicts', query: { group: 'provider_kind' } }">去维护</router-link>
+            </div>
+          </div>
+          <div class="am-field">
+            <label class="am-field__label" for="pv-name">厂家名称</label>
+            <el-input id="pv-name" v-model="providerForm.name" placeholder="展示名称" />
+            <div class="am-field__help">列表与统计里显示的厂家名。</div>
+          </div>
+        </div>
+        <div class="am-field">
+          <label class="am-field__label" for="pv-key">标识 key</label>
+          <el-input id="pv-key" v-model="providerForm.key" placeholder="传给 dsh 的 provider 标识" />
+          <div class="am-field__help">dsh 侧识别厂家用的标识，需唯一；选择类型后会自动填充。</div>
+        </div>
+        <div class="am-field">
+          <label class="am-field__label" for="pv-url">Base URL</label>
+          <el-input id="pv-url" v-model="providerForm.base_url" placeholder="选类型后自动填，自定义可改" />
+          <div class="am-field__help">OpenAI 兼容端点根地址，例如 https://api.deepseek.com/v1。</div>
+        </div>
+        <div class="am-field">
+          <label class="am-field__label" for="pv-key-secret">API Key</label>
+          <el-input id="pv-key-secret" v-model="providerForm.api_key" type="password" show-password
+            placeholder="留空则使用 dsh 自身凭证" />
+          <div class="am-field__help">AES-256-GCM 加密存储，保存后不回显。</div>
+        </div>
+        <div class="am-form-cols">
+          <div class="am-field">
+            <label class="am-field__label" for="pv-remark">备注</label>
+            <el-input id="pv-remark" v-model="providerForm.remark" placeholder="可选" />
+          </div>
+          <div class="am-field">
+            <span class="am-field__label">启用</span>
+            <el-switch v-model="providerForm.enabled" />
+            <div class="am-field__help">停用后不会出现在新建模型的厂家下拉里。</div>
+          </div>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="providerDialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitProvider">保存环境</el-button>
+        <el-button type="primary" :loading="saving" @click="submitProvider">保存厂家</el-button>
       </template>
     </el-dialog>
 
     <!-- 模型对话框 -->
-    <el-dialog v-model="modelDialog" :title="modelForm.id ? '编辑模型' : '新增模型'" width="620" class="am-dialog">
+    <el-dialog v-model="modelDialog" :title="modelForm.id ? '编辑模型' : '新增模型'" width="680" class="am-dialog">
       <p class="am-dialog-desc">输出长度档位按模型官方文档声明过滤；384K 仅对官方支持 384K 输出的模型开放。</p>
-      <el-form :model="modelForm" label-position="top" class="am-form">
-        <div class="am-form-grid">
-          <el-form-item label="所属厂家">
+      <div class="am-form-stack">
+        <div class="am-form-cols">
+          <div class="am-field">
+            <label class="am-field__label">所属厂家</label>
             <el-select v-model="modelForm.provider_id" style="width:100%">
               <el-option v-for="p in providers" :key="p.id" :label="p.name" :value="p.id" />
             </el-select>
-          </el-form-item>
-          <el-form-item label="模型标识 slug">
+            <div class="am-field__help">决定走哪个厂家的凭证与 Base URL。</div>
+          </div>
+          <div class="am-field">
+            <label class="am-field__label">模型标识 slug</label>
             <el-select v-model="modelForm.slug" filterable allow-create default-first-option style="width:100%"
               placeholder="选择或输入官方模型名" @change="onSlugChange">
               <el-option v-for="s in slugOptions" :key="s" :label="s" :value="s" />
             </el-select>
-          </el-form-item>
+            <div class="am-field__origin">
+              来自选项字典 · 模型标识（{{ slugOptions.length }} 项，父级 = 该厂家类型）
+              <router-link class="am-link" :to="{ path: '/dicts', query: { group: 'model_slug' } }">去维护</router-link>
+            </div>
+          </div>
         </div>
-        <el-form-item label="模型名称"><el-input v-model="modelForm.name" placeholder="展示用名称" /></el-form-item>
+        <div class="am-field">
+          <label class="am-field__label">模型名称</label>
+          <el-input v-model="modelForm.name" placeholder="展示用名称" />
+        </div>
 
         <div class="am-form-divider">上下文设置</div>
-        <div class="am-form-grid">
-          <el-form-item label="上下文窗口（输入）">
+        <div class="am-form-cols">
+          <div class="am-field">
+            <label class="am-field__label">上下文窗口（输入）</label>
             <el-select v-model="modelForm.input_context" filterable allow-create default-first-option style="width:100%">
               <el-option v-for="o in inputOptions" :key="o.v" :label="o.label" :value="o.v" />
             </el-select>
-          </el-form-item>
-          <el-form-item label="输出长度（最大输出）">
+          </div>
+          <div class="am-field">
+            <label class="am-field__label">输出长度（最大输出）</label>
             <el-select v-model="modelForm.output_context" filterable allow-create default-first-option style="width:100%">
               <el-option v-for="o in outputOptions" :key="o.v" :label="o.label" :value="o.v">
                 <span class="am-opt">{{ o.label }}<span class="am-opt-tokens">{{ o.tokens }} tokens</span></span>
               </el-option>
             </el-select>
-          </el-form-item>
+          </div>
         </div>
         <div class="am-field-hint">
           <span>1K = 1,024 tokens，选项按「K（tokens）」标注。</span>
@@ -182,23 +336,32 @@
                 <span class="am-collapse-desc">一般无需修改，配置异常或排错时再调整</span>
               </div>
             </template>
-            <el-form-item label="最大推理轮次"><el-input-number v-model="modelForm.max_turns" :min="1" :max="1000" /></el-form-item>
-            <el-form-item label="温度">
+            <div class="am-field">
+              <label class="am-field__label">最大推理轮次</label>
+              <el-input-number v-model="modelForm.max_turns" :min="1" :max="1000" />
+            </div>
+            <div class="am-field">
+              <label class="am-field__label">温度</label>
               <el-select v-model="modelForm.temperature" style="width:100%">
                 <el-option v-for="o in tempOptions" :key="o.value || 'default'" :label="o.label" :value="o.value" />
               </el-select>
-            </el-form-item>
-            <el-form-item label="额外参数">
+              <div class="am-field__origin">
+                来自选项字典 · 模型温度（{{ dict.items('temperature').length }} 项）
+                <router-link class="am-link" :to="{ path: '/dicts', query: { group: 'temperature' } }">去维护</router-link>
+              </div>
+            </div>
+            <div class="am-field">
+              <label class="am-field__label">额外参数</label>
               <el-input v-model="extraText" type="textarea" :rows="3"
                 placeholder='JSON，会合并进 dsh patch 配置，如 {"topP": 0.9}' />
-            </el-form-item>
-            <div class="am-form-grid">
-              <el-form-item label="设为默认"><el-switch v-model="modelForm.is_default" /></el-form-item>
-              <el-form-item label="启用"><el-switch v-model="modelForm.enabled" /></el-form-item>
+            </div>
+            <div class="am-form-cols">
+              <div class="am-field"><span class="am-field__label">设为默认</span><el-switch v-model="modelForm.is_default" /></div>
+              <div class="am-field"><span class="am-field__label">启用</span><el-switch v-model="modelForm.enabled" /></div>
             </div>
           </el-collapse-item>
         </el-collapse>
-      </el-form>
+      </div>
       <template #footer>
         <el-button @click="modelDialog = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="submitModel">保存模型</el-button>
@@ -209,6 +372,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { listLLMConfig, createProvider, updateProvider, deleteProvider, createModel, updateModel, deleteModel, getSettings } from '@/api'
 import { formatTokens } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -285,11 +449,57 @@ function matchSpec(slug, providerKind) {
 
 // ===== state =====
 const dict = useDicts()
+const route = useRoute()
 const providers = ref([])
 const models = ref([])
 const settings = ref({})
 const current = ref(null)
 const saving = ref(false)
+const booting = ref(false)
+
+// 视图分段：模型列表 / 厂家接入 / 调用预览（对齐参考平台的「元信息 | 部署」分段）
+const tabs = [
+  { key: 'models', label: '模型列表' },
+  { key: 'vendors', label: '厂家接入' },
+  { key: 'preview', label: '调用预览' }
+]
+const tab = ref('models')
+const modelKeyword = ref('')
+const vendorFilter = ref('')
+const statusFilter = ref('all')
+const onlyDefault = ref(false)
+const statusFilters = [
+  { key: 'all', label: '全部' },
+  { key: 'on', label: '启用' },
+  { key: 'off', label: '停用' }
+]
+
+const providerName = id => providers.value.find(p => p.id === id)?.name || '-'
+const providerKind = id => providers.value.find(p => p.id === id)?.kind || ''
+const providerRowClass = ({ row }) => (current.value?.id === row.id ? 'am-row-current' : '')
+
+// 字典是厂家类型/模型标识的唯一事实源：这里只读字典，缺项显式提示而不是静默兜底
+const dictProviderKinds = computed(() => dict.items('provider_kind', { enabledOnly: false }))
+const dictHasKind = kind => dictProviderKinds.value.some(k => k.value === kind)
+const dictKindLabel = kind => dictProviderKinds.value.find(k => k.value === kind)?.label || kind
+
+const statusCount = (key) => {
+  if (key === 'on') return models.value.filter(m => m.enabled).length
+  if (key === 'off') return models.value.filter(m => !m.enabled).length
+  return models.value.length
+}
+
+const filteredModels = computed(() => {
+  const kw = modelKeyword.value.trim().toLowerCase()
+  return models.value.filter((m) => {
+    if (vendorFilter.value && m.provider_id !== vendorFilter.value) return false
+    if (statusFilter.value === 'on' && !m.enabled) return false
+    if (statusFilter.value === 'off' && m.enabled) return false
+    if (onlyDefault.value && !m.is_default) return false
+    if (!kw) return true
+    return [m.name, m.slug, providerName(m.provider_id)].some(v => String(v || '').toLowerCase().includes(kw))
+  })
+})
 
 const providerDialog = ref(false)
 const modelDialog = ref(false)
@@ -374,10 +584,16 @@ const envKeyPreview = computed(() => {
 })
 
 async function load() {
-  const r = await listLLMConfig()
-  providers.value = r.data?.providers || []
-  models.value = r.data?.models || []
-  if (!current.value && providers.value.length) current.value = providers.value[0]
+  booting.value = true
+  try {
+    const r = await listLLMConfig()
+    providers.value = r.data?.providers || []
+    models.value = r.data?.models || []
+    if (!current.value && providers.value.length) current.value = providers.value[0]
+    if (current.value) current.value = providers.value.find(p => p.id === current.value.id) || providers.value[0] || null
+  } finally {
+    booting.value = false
+  }
 }
 
 function onSelectProvider(row) { current.value = row }
@@ -542,106 +758,72 @@ async function removeModel(row) {
 onMounted(async () => {
   try { settings.value = (await getSettings()).data || {} } catch { /* ignore */ }
   await dict.load()
-  load()
+  await load()
+  applyRouteFilter()
 })
+
+// 从字典管理页跳进来时带 kind/slug，直接落到对应视图与筛选；
+// 同页只改 query 不会重新挂载组件，所以必须 watch
+watch(() => [route.query.kind, route.query.slug], applyRouteFilter)
+
+function applyRouteFilter() {
+  if (route.query.kind) {
+    tab.value = 'vendors'
+    current.value = providers.value.find(p => p.kind === route.query.kind) || current.value
+  }
+  if (route.query.slug) {
+    tab.value = 'models'
+    modelKeyword.value = String(route.query.slug)
+  }
+}
 </script>
 
 <style scoped>
-.am-section { margin-bottom: 28px; }
-.am-section-head { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
-.am-section-title { margin: 0; font-size: var(--am-font-lg); font-weight: 600; }
-.am-section-suffix { margin-left: 8px; font-weight: 400; color: var(--am-text-dim); }
-.am-section-desc { margin: 4px 0 0; font-size: var(--am-font-sm); color: var(--am-text-dim); line-height: 1.5; }
-.am-section-head .am-flex-1, .am-section-head .el-button { margin-left: auto; }
+/* 表格单元格：主标题 + 次行（参考平台的紧凑两行单元格） */
+.am-cell-title { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--am-text); }
+.am-cell-sub { margin-top: 2px; font-size: var(--am-font-xs); color: var(--am-text-dim); }
 
-/* 厂家卡片 */
-.am-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-.am-provider-card {
-  background: var(--am-bg-elevated);
-  border: 1px solid var(--am-border);
-  border-radius: var(--am-radius);
-  padding: 16px 18px;
-  cursor: pointer;
-  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
-}
-.am-provider-card:hover { border-color: var(--am-border-strong); box-shadow: 0 4px 16px rgba(0,0,0,.25); }
-.am-provider-card.is-active {
-  border-color: var(--am-primary);
-  box-shadow: 0 0 0 3px var(--am-primary-soft);
-}
-.am-provider-top { display: flex; align-items: center; gap: 8px; }
-.am-provider-name { font-size: var(--am-font-lg); font-weight: 600; }
-.am-provider-url { margin-top: 6px; font-size: var(--am-font-xs); color: var(--am-text-dim); word-break: break-all; }
-.am-provider-meta { margin-top: 10px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.am-provider-count { margin-left: auto; font-size: var(--am-font-xs); color: var(--am-text-dim); }
+/* 当前厂家行：淡蓝底 + 左侧色条，和选中态一致 */
+:deep(.el-table__row.am-row-current) { background: var(--am-primary-soft); cursor: pointer; }
+:deep(.el-table__row.am-row-current td:first-child) { box-shadow: inset 3px 0 0 var(--am-primary); }
+:deep(.el-table__row) { cursor: pointer; }
 
-.am-model-list { display: flex; flex-direction: column; gap: 10px; }
-.am-model-row {
-  background: var(--am-bg-elevated);
-  border: 1px solid var(--am-border);
-  border-radius: var(--am-radius);
-  padding: 14px 18px;
-  display: flex; align-items: center; gap: 16px;
-  transition: border-color .18s ease;
-}
-.am-model-row:hover { border-color: var(--am-border-strong); }
-.am-model-info { flex: 1; min-width: 0; }
-.am-model-name { font-size: var(--am-font-md); font-weight: 600; display: flex; align-items: center; gap: 8px; }
-.am-model-sub { margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.am-model-dim { font-size: var(--am-font-xs); color: var(--am-text-dim); }
-.am-model-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.am-model-actions .el-button + .el-button { margin-left: 4px; }
+/* 下拉选项：右对齐的 tokens 标注 */
+.am-opt { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; }
+.am-opt-tokens { font-size: var(--am-font-xs); color: var(--am-text-dim); }
 
-.am-empty { color: var(--am-text-dim); font-size: var(--am-font-sm); text-align: center; padding: 28px 0; }
-
-/* pill */
-.am-pill {
-  display: inline-flex; align-items: center;
-  padding: 2px 10px; border-radius: 999px;
-  font-size: var(--am-font-xs); line-height: 1.6;
-  background: var(--am-bg-inset); color: var(--am-text-dim);
-  border: 1px solid transparent;
-}
-.am-pill-current { background: var(--am-primary-soft); color: var(--am-primary); border-color: transparent; }
-.am-pill-accent { background: var(--am-primary-soft); color: var(--am-primary); }
-
-/* 图标按钮 */
-.am-icon-btn { color: var(--am-text-dim); font-size: var(--am-font-lg); }
-.am-icon-btn:hover { color: var(--am-text); }
-.am-icon-danger:hover { color: var(--am-danger); }
-
-/* 对话框 */
-.am-dialog-desc { margin: -6px 0 16px; font-size: var(--am-font-sm); color: var(--am-text-dim); line-height: 1.6; }
-.am-form :deep(.el-form-item__label) { font-weight: 500; color: var(--am-text); }
-.am-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+/* 对话框：说明、分组标题与折叠区 */
+.am-dialog-desc { margin: -6px 0 18px; font-size: var(--am-font-sm); color: var(--am-text-dim); line-height: var(--am-leading-relaxed); }
 .am-form-divider {
-  margin: 4px 0 14px; padding-top: 14px;
-  border-top: 1px solid var(--am-border);
+  margin: 6px 0 2px; padding-top: var(--am-space-4);
+  border-top: 1px solid var(--am-border-subtle);
   font-size: var(--am-font-sm); font-weight: 600; color: var(--am-text);
 }
 .am-field-hint {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  margin: -6px 0 12px; font-size: var(--am-font-xs); color: var(--am-text-dim); line-height: 1.6;
+  margin: -4px 0 4px; font-size: var(--am-font-xs); color: var(--am-text-dim); line-height: var(--am-leading-relaxed);
 }
 .am-field-hint-spec { display: inline-flex; align-items: center; gap: 4px; }
 .am-hint-link { color: var(--am-primary); cursor: help; }
-.am-opt { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; }
-.am-opt-tokens { font-size: var(--am-font-xs); color: var(--am-text-dim); }
 
-.am-collapse { border: 1px solid var(--am-border); border-radius: var(--am-radius-lg); padding: 0 16px; margin-top: 6px;
-  --el-collapse-border-color: var(--am-border); --el-collapse-header-bg-color: transparent;
-  --el-collapse-content-bg-color: transparent; }
+.am-collapse {
+  border: 1px solid var(--am-border);
+  border-radius: var(--am-radius-md);
+  padding: 0 var(--am-space-4);
+  margin-top: var(--am-space-2);
+  --el-collapse-border-color: var(--am-border);
+  --el-collapse-header-bg-color: transparent;
+  --el-collapse-content-bg-color: transparent;
+}
 .am-collapse :deep(.el-collapse-item__header) { background: transparent; }
+.am-collapse :deep(.el-collapse-item__content) { padding-bottom: var(--am-space-4); }
 .am-collapse-title { display: flex; flex-direction: column; gap: 2px; }
 .am-collapse-title span:first-child { font-size: var(--am-font-md); font-weight: 600; }
 .am-collapse-desc { font-size: var(--am-font-xs); font-weight: 400; color: var(--am-text-dim); }
 
-.am-alert { border-radius: var(--am-radius-md); margin-bottom: 12px; }
+.am-alert { border-radius: var(--am-radius-md); margin-bottom: var(--am-space-3); }
 
 @media (max-width: 767.98px) {
-  .am-page-model { padding: 16px 12px 32px; }
-  .am-form-grid { grid-template-columns: 1fr; }
-  .am-model-row { flex-direction: column; align-items: flex-start; }
-  .am-model-actions { align-self: flex-end; }
+  :deep(.el-table__row) { cursor: default; }
 }
 </style>
