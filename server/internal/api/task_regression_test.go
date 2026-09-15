@@ -258,8 +258,10 @@ func TestRetryTaskClearsResultFields(t *testing.T) {
 	}
 }
 
-// TestUpdateSettingsPlatformOnlyDSHFields 跨路项 B（安全 P2-1）：dsh.home / dsh.patch_template
-// 属于可执行入口，租户写入必须被忽略；平台超管可写且做基本校验；timeout_sec 做范围校验。
+// TestUpdateSettingsPlatformOnlyDSHFields 跨路项 B（安全 P2-1）：设置写是平台级权限
+// （settings:update 属 PlatformOnlyPermissions，非超管即使直改库持有该码也会在鉴权层被过滤），
+// 非超管写 dsh.home / dsh.patch_template / timeout_sec 一律 403 且配置不变；
+// 平台超管可写平台级入口且做基本校验；dsh.timeout_sec 做范围校验。
 func TestUpdateSettingsPlatformOnlyDSHFields(t *testing.T) {
 	e := newFlow(t)
 	tenant := e.tenantOf(t)
@@ -269,6 +271,7 @@ func TestUpdateSettingsPlatformOnlyDSHFields(t *testing.T) {
 	dshBefore, _ := before["dsh"].(map[string]any)
 	oldHome, _ := dshBefore["home"].(string)
 	oldPatch, _ := dshBefore["patch_template"].(string)
+	oldTimeout, _ := dshBefore["timeout_sec"].(float64)
 
 	res := e.do(http.MethodPut, "/api/v1/settings", adminToken, map[string]any{
 		"dsh": map[string]any{
@@ -277,19 +280,19 @@ func TestUpdateSettingsPlatformOnlyDSHFields(t *testing.T) {
 			"timeout_sec":    60,
 		},
 	})
-	if res.Status != http.StatusOK || res.Code != 0 {
-		t.Fatalf("租户管理员改 timeout_sec 应被接受: %+v", res)
+	if res.Status != http.StatusForbidden {
+		t.Fatalf("非超管写设置应 403（settings:update 为平台专属）：%+v", res)
 	}
 	after := e.ok(http.MethodGet, "/api/v1/settings", nil)
 	dshAfter, _ := after["dsh"].(map[string]any)
 	if dshAfter["home"] != oldHome {
-		t.Fatalf("租户管理员不应改写 dsh.home：%v", dshAfter["home"])
+		t.Fatalf("非超管不应改写 dsh.home：%v", dshAfter["home"])
 	}
 	if dshAfter["patch_template"] != oldPatch {
-		t.Fatalf("租户管理员不应改写 dsh.patch_template：%v", dshAfter["patch_template"])
+		t.Fatalf("非超管不应改写 dsh.patch_template：%v", dshAfter["patch_template"])
 	}
-	if n, _ := dshAfter["timeout_sec"].(float64); n != 60 {
-		t.Fatalf("timeout_sec 白名单字段应生效，实际 %v", dshAfter["timeout_sec"])
+	if n, _ := dshAfter["timeout_sec"].(float64); n != oldTimeout {
+		t.Fatalf("非超管不应改写 dsh.timeout_sec，实际 %v", dshAfter["timeout_sec"])
 	}
 
 	// 范围校验：0/负值会让 dsh 没有超时
