@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/automedic/automedic/internal/config"
@@ -23,10 +24,12 @@ import (
 
 // Executor 修复任务编排器
 type Executor struct {
-	db     *gorm.DB
-	cfg    *config.Config
+	db *gorm.DB
+	// cfg 运行时可调配置的不可变快照：Web 写设置时整份替换（见 UpdateSettings），
+	// worker 侧只读取自己拿到的那份，避免与写配置的数据竞争。
+	cfg atomic.Pointer[config.Config]
+	// gitm 凭证/远端地址辅助（known_hosts 等）；工作区准备按当前配置快照重建，见 gitMgr
 	gitm   *git.Manager
-	dshr   *dsh.Runner
 	crypt  *crypto.Service
 	hub    *ws.Hub
 	queue  chan uint
@@ -36,20 +39,45 @@ type Executor struct {
 	// repoMu 保护 repoLocks；repoLocks 按仓库 ID 维护独立互斥锁，使同一仓库的任务串行执行。
 	repoMu    sync.Mutex
 	repoLocks map[uint]*sync.Mutex
+	// reviewMu 串行化「同仓库是否已有审查任务」的判定与建单；reviewSem 限制审查（clone + OCR）并发上限
+	reviewMu  sync.Mutex
+	reviewSem chan struct{}
 }
+
+// maxConcurrentReviews 审查并发上限：复查连点/多仓库同时发起时不打满机器与模型额度
+const maxConcurrentReviews = 2
 
 func NewExecutor(db *gorm.DB, cfg *config.Config, crypt *crypto.Service, hub *ws.Hub) *Executor {
 	e := &Executor{
-		db: db, cfg: cfg, dshr: dsh.NewRunner(&cfg.DSH), crypt: crypt, hub: hub,
+		db: db, crypt: crypt, hub: hub,
 		queue: make(chan uint, 1024), limit: 4, cancel: map[uint]context.CancelFunc{},
 		repoLocks: map[uint]*sync.Mutex{},
+		reviewSem: make(chan struct{}, maxConcurrentReviews),
 	}
+	e.cfg.Store(cfg)
 	e.gitm = e.gitMgr()
 	return e
 }
 
+// Cfg 返回当前运行时配置快照；快照只读，读取方无需加锁
+func (e *Executor) Cfg() *config.Config { return e.cfg.Load() }
+
+// UpdateSettings 以写时复制方式更新运行时可调配置：先拷贝快照、应用改动、再整体替换，
+// worker 永远读到某一份完整配置（无锁、无数据竞争）。
+func (e *Executor) UpdateSettings(apply func(cfg *config.Config)) {
+	cur := *e.Cfg()
+	apply(&cur)
+	e.cfg.Store(&cur)
+}
+
+// runner 按当前配置快照构造 dsh 运行器：配置更新后新任务自动生效，且不与写配置共享可变状态
+func (e *Executor) runner() *dsh.Runner {
+	cfg := *e.Cfg() // 拷贝：NewRunner 会回填默认值，不能写进共享快照
+	return dsh.NewRunner(&cfg.DSH)
+}
+
 func (e *Executor) gitMgr() *git.Manager {
-	g := e.cfg.Git
+	g := e.Cfg().Git
 	return git.NewManager(g.Bin, g.WorkspaceRoot, g.Depth, g.ReuseWorkspace, g.BranchPrefix, g.AuthorName, g.AuthorEmail)
 }
 
@@ -71,6 +99,15 @@ func (e *Executor) Start(ctx context.Context) {
 	}
 	// 崩溃恢复：扫描遗留的 pending / running 任务
 	go e.scanner(ctx)
+	// 审查链路没有恢复机制：上次进程留下的 pending/running 审查无人接管，直接标失败并允许重跑
+	if err := e.db.Model(&model.ReviewJob{}).
+		Where("status IN ?", []model.ReviewStatus{model.ReviewStatusPending, model.ReviewStatusRunning}).
+		Updates(map[string]any{
+			"status": model.ReviewStatusFailed, "progress": "审查中断",
+			"error_msg": "服务重启，审查任务已中断，请重新发起", "finished_at": time.Now(),
+		}).Error; err != nil {
+		slog.Warn("标记残留审查任务失败失败", "err", err)
+	}
 	slog.Info("executor started", "workers", e.limit)
 }
 
@@ -89,7 +126,7 @@ func (e *Executor) scanner(ctx context.Context) {
 			for _, id := range ids {
 				e.Enqueue(id)
 			}
-			timeout := time.Duration(e.cfg.DSH.TimeoutSec+300) * time.Second
+			timeout := time.Duration(e.Cfg().DSH.TimeoutSec+300) * time.Second
 			if timeout < 5*time.Minute {
 				timeout = 5 * time.Minute
 			}
@@ -213,15 +250,26 @@ func (e *Executor) Execute(ctx context.Context, taskID uint) error {
 	if outcome.Status == model.TaskStatusSuccess && outcome.NeedConfirm {
 		patch["status"] = model.TaskStatusConfirming
 	}
-	if err := e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(patch).Error; err != nil {
-		slog.Error("update task result failed", "task", taskID, "err", err)
+	// 只在任务仍是 running 时落终态：执行期间被人取消/忽略或被 scanner 判超时的，
+	// 不能被这里的结论覆盖（否则「已取消」会变回 success，或把人工终态覆盖掉）。
+	final := e.db.Model(&model.Task{}).Where("id = ? AND status = ?", taskID, model.TaskStatusRunning).Updates(patch)
+	if final.Error != nil {
+		slog.Error("update task result failed", "task", taskID, "err", final.Error)
 	}
 	statusVal, _ := patch["status"].(model.TaskStatus)
-	task.Status = statusVal
-	task.ErrorMsg = outcome.ErrMsg
+	if final.RowsAffected == 0 {
+		slog.Info("task result skipped, status changed during run", "task", taskID)
+		var cur model.Task
+		if err := e.db.Preload("Event").First(&cur, taskID).Error; err == nil {
+			task = cur
+		}
+	} else {
+		task.Status = statusVal
+		task.ErrorMsg = outcome.ErrMsg
+		e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: string(statusVal), Stage: outcome.Stage})
+		e.hub.Publish(ws.Message{Type: "done", TaskID: taskID, Content: outcome.Summary})
+	}
 	SyncEventFromTask(e.db, &task)
-	e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: string(statusVal), Stage: outcome.Stage})
-	e.hub.Publish(ws.Message{Type: "done", TaskID: taskID, Content: outcome.Summary})
 	if outcome.Err != nil {
 		return outcome.Err
 	}
@@ -289,14 +337,22 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 	}
 	defer wsDir.Cleanup()
 	res.Workspace, res.Branch, res.BaseCommit = wsDir.Dir, wsDir.Branch, wsDir.BaseCommit
+	// 基线先落库：finalize 判断「HEAD 是否等于基线」依赖它，不能等任务结束才写
+	task.Workspace, task.Branch, task.BaseCommit = wsDir.Dir, wsDir.Branch, wsDir.BaseCommit
+	if err := e.db.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{
+		"workspace": wsDir.Dir, "branch": wsDir.Branch, "base_commit": wsDir.BaseCommit,
+	}).Error; err != nil {
+		slog.Warn("保存工作区基线失败", "task", task.ID, "err", err)
+	}
 
 	// 4. 指令文件 + 任务文本
+	dshr := e.runner()
 	extra := ""
 	if task.Rule != nil && strings.TrimSpace(task.Rule.PromptTemplate) != "" {
 		extra = task.Rule.PromptTemplate
 	}
 	instruction := buildInstruction(&project, &repo, extra)
-	if err := e.dshr.WriteInstruction(wsDir.Dir, instruction); err != nil {
+	if err := dshr.WriteInstruction(wsDir.Dir, instruction); err != nil {
 		res.Status, res.ErrMsg, res.Err = model.TaskStatusFailed, "写入指令文件失败: "+err.Error(), err
 		sink("stderr", "[automedic] "+res.ErrMsg)
 		return res
@@ -312,11 +368,13 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 	e.hub.Publish(ws.Message{Type: "status", TaskID: task.ID, Stage: "dsh"})
 	sink("sys", fmt.Sprintf("[automedic] 开始调用 dsh headless（工作区：%s）", wsDir.Dir))
 
-	rr, runErr := e.dshr.Run(ctx, dsh.RunRequest{
+	rr, runErr := dshr.Run(ctx, dsh.RunRequest{
 		TaskID: task.ID, Workspace: wsDir.Dir, TaskText: taskText,
 		Provider: provider, LLM: llm, ProviderKey: provKey, Sink: sink,
 	})
-	if rr != nil {
+	if rr == nil {
+		res.ExitCode = -1
+	} else {
 		res.ExitCode, res.Cmd = rr.ExitCode, rr.Command
 		res.Summary, res.Diagnosis, res.ChangedFiles = rr.Summary, rr.Diagnosis, rr.ChangedFiles
 	}
@@ -325,33 +383,33 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 		sink("sys", "[automedic] 任务已取消，跳过提交推送")
 		return res
 	}
-	if runErr != nil && rr == nil {
-		res.Status, res.ErrMsg, res.Err = model.TaskStatusFailed, "dsh 执行失败: "+runErr.Error(), runErr
+	// dsh 非零退出、超时、启动失败一律判 failed：否则会推出一个等于基线的空分支，
+	// 同指纹告警随后被「已修复成功」去重，故障再也不会被处理。
+	if runErr != nil {
+		res.Status = model.TaskStatusFailed
+		res.ErrMsg = fmt.Sprintf("dsh 执行失败(exit=%d): %v", res.ExitCode, runErr)
+		res.Err = runErr
 		sink("stderr", "[automedic] "+res.ErrMsg)
 		return res
 	}
 
-	// 6. 判断是否有代码变更（清理平台产物前，依据真实工作区状态）
+	// 6. 判断是否有代码变更：先清理平台产物（.automedic/ 与 AUTOMEDIC.md/AGENTS.md），
+	//    否则平台自己写下的文件让 git status 永不为空，「无代码变更」检测失效。
+	dshr.CleanupArtifacts(wsDir.Dir)
 	changed, _ := wsDir.ChangedFiles(ctx)
-	if len(changed) == 0 && len(res.ChangedFiles) > 0 {
-		changed = res.ChangedFiles
-	}
 	noChange := (rr != nil && rr.NoCodeChange) || len(changed) == 0
 	if noChange {
-		e.dshr.CleanupArtifacts(wsDir.Dir)
 		res.Stage = "done"
 		res.Status = model.TaskStatusIgnored
+		res.ChangedFiles = nil
 		if res.Summary == "" {
 			res.Summary = "dsh 未产生代码变更（可能属于业务拒绝、第三方故障或配置问题）"
 		}
 		sink("sys", "[automedic] 未检测到代码变更，任务标记为已忽略")
 		return res
 	}
-	e.dshr.CleanupArtifacts(wsDir.Dir)
 
-	// 清理平台指令文件（AUTOMEDIC.md / AGENTS.md）之后再生成补丁与变更列表，
-	// 避免把指令文件一并提交进用户仓库
-	res.ChangedFiles, _ = wsDir.ChangedFiles(ctx)
+	res.ChangedFiles = changed
 	res.DiffStat, _ = wsDir.DiffStat(ctx)
 	res.DiffStat = strings.TrimSpace(res.DiffStat)
 	res.Patch, _ = wsDir.Patch(ctx)
@@ -372,7 +430,7 @@ func (e *Executor) run(ctx context.Context, task *model.Task, sink execx.Sink) o
 	}
 
 	// 9. 全自动：提交 / 推送 / 发布
-	fin, err := e.finalize(ctx, task, wsDir, sink)
+	fin, err := e.finalize(ctx, task, wsDir, false, sink)
 	res.Stage = fin.stage
 	res.FixCommit = fin.commit
 	if err != nil {
@@ -389,12 +447,17 @@ type finalizeResult struct {
 	stage  string
 }
 
-func (e *Executor) finalize(ctx context.Context, task *model.Task, wsDir *git.Workspace, sink execx.Sink) (finalizeResult, error) {
+// finalize 提交/推送/发布。resume 为 true 时（Confirm 或失败后重试推送）允许复用本地已有提交；
+// 首跑不允许：那时「工作区无变更但 HEAD ≠ 基线」只说明工作区被别人用过，不是本任务的成果。
+func (e *Executor) finalize(ctx context.Context, task *model.Task, wsDir *git.Workspace, resume bool, sink execx.Sink) (finalizeResult, error) {
 	fr := finalizeResult{stage: "commit"}
 	e.db.Model(&model.Task{}).Where("id = ?", task.ID).Update("stage", "commit")
 
 	changed, _ := wsDir.ChangedFiles(ctx)
 	if len(changed) == 0 {
+		if !resume {
+			return fr, errors.New("工作区无代码变更，无法提交推送")
+		}
 		sha, err := wsDir.Head(ctx)
 		if err != nil {
 			return fr, err
@@ -439,7 +502,7 @@ func (e *Executor) finalize(ctx context.Context, task *model.Task, wsDir *git.Wo
 	sink("sys", "[git] 已推送 "+wsDir.Branch)
 
 	// 发布钩子仅来自配置文件 git.release_hook，忽略项目字段（Web 曾可写，历史值不再执行）。
-	hook := strings.TrimSpace(e.cfg.Git.ReleaseHook)
+	hook := strings.TrimSpace(e.Cfg().Git.ReleaseHook)
 	if hook != "" {
 		fr.stage = "release"
 		e.db.Model(&model.Task{}).Where("id = ?", task.ID).Update("stage", "release")
@@ -454,28 +517,56 @@ func (e *Executor) finalize(ctx context.Context, task *model.Task, wsDir *git.Wo
 	return fr, nil
 }
 
-// Confirm 人工确认：提交并推送（半自动模式）
-func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note string) error {
-	// 原子抢占：待确认，或失败但已有补丁/提交/工作区可重试推送。抢占后 status=running，
-	// 不可再按 CanResumeFinalize(当前行) 判断——那会把 confirming 误判为不可 resume。
+// ErrTaskBusy 任务已被其它执行者占用（双击确认、重复触发重试推送）
+var ErrTaskBusy = errors.New("任务正在被其它执行者处理")
+
+// ErrTaskState 任务当前状态不允许该操作
+var ErrTaskState = errors.New("任务状态不允许该操作")
+
+// ClaimConfirm 原子抢占确认执行权：待确认，或失败但已有补丁/提交/工作区可重试推送。
+// 抢占后 status=running，不可再按 CanResumeFinalize(当前行) 判断——那会把 confirming 误判为不可 resume。
+// 抢占失败不写库，用 ErrTaskBusy / ErrTaskState 区分「被占用」与「状态不允许」。
+func (e *Executor) ClaimConfirm(taskID uint) (model.Task, error) {
 	claim := e.db.Model(&model.Task{}).
 		Where("id = ?", taskID).
 		Where("(status = ?) OR (status = ? AND (NULLIF(patch,'') IS NOT NULL OR NULLIF(fix_commit,'') IS NOT NULL OR NULLIF(workspace,'') IS NOT NULL))",
 			model.TaskStatusConfirming, model.TaskStatusFailed).
 		Updates(map[string]any{"status": model.TaskStatusRunning, "error_msg": ""})
 	if claim.Error != nil {
-		return claim.Error
+		return model.Task{}, claim.Error
 	}
 	if claim.RowsAffected == 0 {
-		return errors.New("任务不在待确认或可重试推送状态")
+		var cur model.Task
+		if err := e.db.Select("id", "status").First(&cur, taskID).Error; err != nil {
+			return model.Task{}, err
+		}
+		if cur.Status == model.TaskStatusRunning {
+			return model.Task{}, fmt.Errorf("%w（状态 %s）", ErrTaskBusy, cur.Status)
+		}
+		return model.Task{}, fmt.Errorf("%w（状态 %s）", ErrTaskState, cur.Status)
 	}
 	var task model.Task
 	if err := e.db.Preload("Event").Preload("Rule").Preload("Repo").Preload("Project").First(&task, taskID).Error; err != nil {
 		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
 			"status": model.TaskStatusFailed, "error_msg": err.Error(),
 		})
+		return model.Task{}, err
+	}
+	return task, nil
+}
+
+// Confirm 人工确认：抢占后提交并推送（半自动模式）
+func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note string) error {
+	task, err := e.ClaimConfirm(taskID)
+	if err != nil {
 		return err
 	}
+	return e.ConfirmClaimed(ctx, &task, operator, note)
+}
+
+// ConfirmClaimed 执行已抢占（status=running）的确认流程：提交、推送、发布
+func (e *Executor) ConfirmClaimed(ctx context.Context, task *model.Task, operator, note string) error {
+	taskID := task.ID
 	unlock := e.lockRepo(task.RepoID)
 	defer unlock()
 	e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: string(model.TaskStatusRunning), Stage: task.Stage})
@@ -483,7 +574,7 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 	defer lw.Close()
 	sink := lw.Sink()
 
-	wsDir, err := e.ensureWorkspace(ctx, &task, sink)
+	wsDir, err := e.ensureWorkspace(ctx, task, sink)
 	if err != nil {
 		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
 			"status": model.TaskStatusFailed, "error_msg": err.Error(),
@@ -503,7 +594,7 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(fail)
 		task.Status = model.TaskStatusFailed
 		task.ErrorMsg = err.Error()
-		SyncEventFromTask(e.db, &task)
+		SyncEventFromTask(e.db, task)
 		e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: "failed", Stage: stage})
 		return err
 	}
@@ -513,8 +604,8 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 		head, _ := wsDir.Head(ctx)
 		if head != "" && head != task.BaseCommit {
 			sink("sys", "[git] 工作区已提交，跳过 commit，继续推送")
-		} else if strings.TrimSpace(task.Patch) != "" && task.Workspace != "" {
-			if err := applyPatchFile(ctx, e.cfg.Git.Bin, wsDir.Dir, task.ID, task.Patch, sink); err != nil {
+		} else if strings.TrimSpace(task.Patch) != "" {
+			if err := applyPatchFile(ctx, e.Cfg().Git.Bin, wsDir.Dir, taskID, task.Patch, sink); err != nil {
 				return failConfirm(err, task.Stage)
 			}
 		} else {
@@ -529,8 +620,8 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 	sink("sys", fmt.Sprintf("[automedic] 人工确认：%s %s", operator, note))
 
 	// 清理平台指令文件（AUTOMEDIC.md / AGENTS.md），Cleanup 幂等（无 manifest 时是 no-op），避免提交进用户仓库
-	e.dshr.CleanupArtifacts(wsDir.Dir)
-	fin, err := e.finalize(ctx, &task, wsDir, sink)
+	e.runner().CleanupArtifacts(wsDir.Dir)
+	fin, err := e.finalize(ctx, task, wsDir, true, sink)
 	if err != nil {
 		fail := map[string]any{
 			"status": model.TaskStatusFailed, "error_msg": err.Error(), "stage": fin.stage,
@@ -541,7 +632,7 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 		e.db.Model(&model.Task{}).Where("id = ?", taskID).Updates(fail)
 		task.Status = model.TaskStatusFailed
 		task.ErrorMsg = err.Error()
-		SyncEventFromTask(e.db, &task)
+		SyncEventFromTask(e.db, task)
 		e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: "failed", Stage: fin.stage})
 		return err
 	}
@@ -551,7 +642,7 @@ func (e *Executor) Confirm(ctx context.Context, taskID uint, operator, note stri
 	})
 	task.Status = model.TaskStatusSuccess
 	task.ErrorMsg = ""
-	SyncEventFromTask(e.db, &task)
+	SyncEventFromTask(e.db, task)
 	e.hub.Publish(ws.Message{Type: "status", TaskID: taskID, Status: "success", Stage: "done"})
 	return nil
 }
@@ -578,12 +669,19 @@ func (e *Executor) Reject(ctx context.Context, taskID uint, operator, note strin
 	return nil
 }
 
-// ensureWorkspace 确认时复用已有工作区；若丢失则重建并应用已保存补丁
+// ensureWorkspace 确认时复用与任务记录一致的工作区；不一致或丢失则重建并回放已保存补丁。
+// 校验分支/HEAD/改动，避免把别的任务或人工操作留下的内容提交进本任务分支。
 func (e *Executor) ensureWorkspace(ctx context.Context, task *model.Task, sink execx.Sink) (*git.Workspace, error) {
 	gitm := e.gitMgr()
 	if task.Workspace != "" {
 		if _, err := os.Stat(filepath.Join(task.Workspace, ".git")); err == nil {
-			return gitm.OpenWorkspace(task.Workspace, task.Branch), nil
+			ws := gitm.OpenWorkspace(task.Workspace, task.Branch)
+			if err := verifyWorkspaceMatchesTask(ctx, task, ws); err != nil {
+				sink("sys", "[git] 工作区与任务记录不一致（"+err.Error()+"），重建工作区")
+			} else {
+				sink("sys", "[git] 复用工作区 "+task.Workspace)
+				return ws, nil
+			}
 		}
 	}
 	var repo model.Repository
@@ -595,20 +693,59 @@ func (e *Executor) ensureWorkspace(ctx context.Context, task *model.Task, sink e
 	if task.Patch == "" {
 		return nil, errors.New("工作区已丢失且无补丁记录，请重新执行任务")
 	}
-	sink("sys", "[git] 工作区已丢失，重建并应用补丁")
+	sink("sys", "[git] 重建工作区并应用已保存的补丁")
 	spec := &git.RepoSpec{
 		ProjectKey: project.Key, RepoID: repo.ID, RepoName: repo.Name,
-		URL: repo.URL, Branch: repo.Branch, Auth: e.resolveAuth(&repo, sink),
+		URL: repo.URL, Branch: repo.Branch, FixBranch: task.Branch, Auth: e.resolveAuth(&repo, sink),
 	}
 	wsDir, err := gitm.Prepare(ctx, spec, task.ID, sink)
 	if err != nil {
 		return nil, err
 	}
-	if err := applyPatchFile(ctx, e.cfg.Git.Bin, wsDir.Dir, task.ID, task.Patch, sink); err != nil {
+	if err := applyPatchFile(ctx, e.Cfg().Git.Bin, wsDir.Dir, task.ID, task.Patch, sink); err != nil {
 		wsDir.Cleanup()
 		return nil, err
 	}
 	return wsDir, nil
+}
+
+// verifyWorkspaceMatchesTask 校验待复用的工作区确实属于本任务且没有被写脏：
+// 分支必须等于任务分支；HEAD 必须是基线（还带着未提交改动）或本任务的提交（推送失败重试）；
+// 未提交改动必须与任务保存的补丁完全一致，否则拒绝复用，走重建。
+func verifyWorkspaceMatchesTask(ctx context.Context, task *model.Task, ws *git.Workspace) error {
+	branch, err := ws.CurrentBranch(ctx)
+	if err != nil {
+		return err
+	}
+	if branch != task.Branch {
+		return fmt.Errorf("当前分支 %s 与任务分支 %s 不一致", branch, task.Branch)
+	}
+	head, err := ws.Head(ctx)
+	if err != nil {
+		return err
+	}
+	changed, err := ws.ChangedFiles(ctx)
+	if err != nil {
+		return err
+	}
+	if head != task.BaseCommit {
+		// 本地已有提交（推送失败后重试）：必须干净，不能再混入未提交内容
+		if len(changed) != 0 {
+			return errors.New("工作区既有本地提交又有未提交改动")
+		}
+		return nil
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	patch, err := ws.Patch(ctx)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(task.Patch) == "" || strings.TrimSpace(patch) != strings.TrimSpace(task.Patch) {
+		return errors.New("工作区改动与任务保存的补丁不一致")
+	}
+	return nil
 }
 
 func applyPatchFile(ctx context.Context, gitBin, dir string, taskID uint, patch string, sink execx.Sink) error {
@@ -762,7 +899,7 @@ func (e *Executor) TestRepo(ctx context.Context, repo *model.Repository) error {
 	defer cancel()
 	var sb strings.Builder
 	res := execx.Run(ctx2, execx.Spec{
-		Name: "git-ls-remote", Bin: e.cfg.Git.Bin,
+		Name: "git-ls-remote", Bin: e.Cfg().Git.Bin,
 		Args: []string{"ls-remote", "--exit-code", "-h", url, branch},
 		Env:  env, Timeout: 60 * time.Second,
 	}, func(_, line string) { sb.WriteString(line); sb.WriteString("\n") })

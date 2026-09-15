@@ -1,7 +1,9 @@
 package api
 
 import (
+	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -16,13 +18,15 @@ import (
 )
 
 type Handlers struct {
-	db    *gorm.DB
+	db *gorm.DB
+	// cfg 启动配置（只读）：运行时可调项一律从 exec.Cfg() 取当前快照
 	cfg   *config.Config
 	exec  *service.Executor
 	crypt *crypto.Service
 	hub   *ws.Hub
 	auth  *auth.Service
-	// settingsMu 保护对 h.cfg.DSH.* / h.cfg.Git.* 等运行时配置的读写，避免与 worker 读配置产生数据竞争
+	// settingsMu 串行化「读当前快照 -> 改 -> 整体替换」这条写路径，避免两个设置请求互相覆盖；
+	// worker 读的是 Executor 里整体替换的不可变快照，不经过这把锁也不会产生数据竞争
 	settingsMu sync.Mutex
 }
 
@@ -96,40 +100,52 @@ func (h *Handlers) ServeTaskWS(c *gin.Context) {
 func (h *Handlers) GetSettings(c *gin.Context) {
 	h.settingsMu.Lock()
 	defer h.settingsMu.Unlock()
+	cfg := h.exec.Cfg()
 	OK(c, gin.H{
 		"dsh": gin.H{
-			"bin":              h.cfg.DSH.Bin,
-			"home":             h.cfg.DSH.Home,
-			"timeout_sec":      h.cfg.DSH.TimeoutSec,
-			"permission_mode":  h.cfg.DSH.PermissionMode,
-			"command_template": h.cfg.DSH.CommandTemplate,
-			"patch_template":   h.cfg.DSH.PatchTemplate,
-			"use_shell":        h.cfg.DSH.UseShell,
-			"instruction_file": h.cfg.DSH.InstructionFile,
-			"env":              h.cfg.DSH.Env,
+			"bin":              cfg.DSH.Bin,
+			"home":             cfg.DSH.Home,
+			"timeout_sec":      cfg.DSH.TimeoutSec,
+			"permission_mode":  cfg.DSH.PermissionMode,
+			"command_template": cfg.DSH.CommandTemplate,
+			"patch_template":   cfg.DSH.PatchTemplate,
+			"use_shell":        cfg.DSH.UseShell,
+			"instruction_file": cfg.DSH.InstructionFile,
+			"env":              cfg.DSH.Env,
 		},
 		"ocr": gin.H{
-			"bin":         h.cfg.OCR.Bin,
-			"timeout_sec": h.cfg.OCR.TimeoutSec,
-			"model_id":    h.cfg.OCR.ModelID,
-			"use_default": h.cfg.OCR.ModelID == nil || *h.cfg.OCR.ModelID == 0,
+			"bin":         cfg.OCR.Bin,
+			"timeout_sec": cfg.OCR.TimeoutSec,
+			"model_id":    cfg.OCR.ModelID,
+			"use_default": cfg.OCR.ModelID == nil || *cfg.OCR.ModelID == 0,
 		},
 		"git": gin.H{
-			"workspace_root":  h.cfg.Git.WorkspaceRoot,
-			"depth":           h.cfg.Git.Depth,
-			"reuse_workspace": h.cfg.Git.ReuseWorkspace,
-			"branch_prefix":   h.cfg.Git.BranchPrefix,
-			"author_name":     h.cfg.Git.AuthorName,
-			"author_email":    h.cfg.Git.AuthorEmail,
-			"auto_push":       h.cfg.Git.AutoPush,
-			"release_hook":    h.cfg.Git.ReleaseHook,
-			"keep_days":       h.cfg.Git.KeepDays,
+			"workspace_root":  cfg.Git.WorkspaceRoot,
+			"depth":           cfg.Git.Depth,
+			"reuse_workspace": cfg.Git.ReuseWorkspace,
+			"branch_prefix":   cfg.Git.BranchPrefix,
+			"author_name":     cfg.Git.AuthorName,
+			"author_email":    cfg.Git.AuthorEmail,
+			"auto_push":       cfg.Git.AutoPush,
+			"release_hook":    cfg.Git.ReleaseHook,
+			"keep_days":       cfg.Git.KeepDays,
 		},
 	})
 }
 
+// dsh 超时范围（秒）：0/负值会让 dsh 没有超时，超大值等于放大失联窗口
+const (
+	minDSHTimeoutSec = 1
+	maxDSHTimeoutSec = 86400
+	// maxPatchTemplateBytes patch 覆盖层模板长度上限，避免超大 YAML 进入每次 dsh 调用
+	maxPatchTemplateBytes = 64 * 1024
+)
+
 // UpdateSettings 更新运行时设置（仅内存生效，重启后回到配置文件/环境变量的值；持久化待实现）。
 // 可执行入口（bin / command_template / use_shell / env / release_hook / workspace_root）只能改配置文件，Web 写入一律忽略。
+// dsh.home / dsh.patch_template 直接决定 dsh 进程配置（DSH_HOME、--patch 覆盖层），只允许平台超管写，
+// 其余主体按「非白名单字段直接忽略」处理，避免租户通过 Web 触达可执行入口。
+// 配置以整份不可变快照替换（Executor.UpdateSettings），worker 读取不加锁也不会与这里竞争。
 func (h *Handlers) UpdateSettings(c *gin.Context) {
 	h.settingsMu.Lock()
 	defer h.settingsMu.Unlock()
@@ -159,52 +175,77 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 		BadRequest(c, err)
 		return
 	}
+	isSuper := false
+	if p := h.principal(c); p != nil && p.IsSuper {
+		isSuper = true
+	}
 	if body.DSH != nil {
-		setStr(&h.cfg.DSH.Home, body.DSH.Home)
-		setStr(&h.cfg.DSH.PatchTemplate, body.DSH.PatchTemplate)
 		if body.DSH.TimeoutSec != nil {
-			h.cfg.DSH.TimeoutSec = *body.DSH.TimeoutSec
-		}
-		if body.DSH.PermissionMode != nil {
-			if *body.DSH.PermissionMode != "workspace-write" {
-				BadRequest(c, "权限模式仅允许 workspace-write")
+			if v := *body.DSH.TimeoutSec; v < minDSHTimeoutSec || v > maxDSHTimeoutSec {
+				BadRequest(c, fmt.Sprintf("dsh.timeout_sec 必须在 %d~%d 秒之间", minDSHTimeoutSec, maxDSHTimeoutSec))
 				return
 			}
-			h.cfg.DSH.PermissionMode = "workspace-write"
+		}
+		if body.DSH.PermissionMode != nil && *body.DSH.PermissionMode != "workspace-write" {
+			BadRequest(c, "权限模式仅允许 workspace-write")
+			return
+		}
+		if isSuper && body.DSH.Home != nil && *body.DSH.Home != "" && !filepath.IsAbs(*body.DSH.Home) {
+			BadRequest(c, "dsh.home 必须是绝对路径")
+			return
+		}
+		if isSuper && body.DSH.PatchTemplate != nil && len(*body.DSH.PatchTemplate) > maxPatchTemplateBytes {
+			BadRequest(c, "dsh.patch_template 过长")
+			return
 		}
 	}
-	if body.OCR != nil {
-		if body.OCR.TimeoutSec != nil {
-			h.cfg.OCR.TimeoutSec = *body.OCR.TimeoutSec
-		}
-		if body.OCR.UseDefault != nil && *body.OCR.UseDefault {
-			h.cfg.OCR.ModelID = nil
-		} else if body.OCR.ModelID != nil {
-			if *body.OCR.ModelID == 0 {
-				h.cfg.OCR.ModelID = nil
-			} else {
-				id := *body.OCR.ModelID
-				h.cfg.OCR.ModelID = &id
+	h.exec.UpdateSettings(func(cfg *config.Config) {
+		if body.DSH != nil {
+			if body.DSH.TimeoutSec != nil {
+				cfg.DSH.TimeoutSec = *body.DSH.TimeoutSec
+			}
+			if body.DSH.PermissionMode != nil {
+				cfg.DSH.PermissionMode = "workspace-write"
+			}
+			// 平台级入口：只有超管能改，租户写这两项与其他非白名单字段一样被忽略
+			if isSuper {
+				setStr(&cfg.DSH.Home, body.DSH.Home)
+				setStr(&cfg.DSH.PatchTemplate, body.DSH.PatchTemplate)
 			}
 		}
-	}
-	if body.Git != nil {
-		setStr(&h.cfg.Git.BranchPrefix, body.Git.BranchPrefix)
-		setStr(&h.cfg.Git.AuthorName, body.Git.AuthorName)
-		setStr(&h.cfg.Git.AuthorEmail, body.Git.AuthorEmail)
-		if body.Git.Depth != nil {
-			h.cfg.Git.Depth = *body.Git.Depth
+		if body.OCR != nil {
+			if body.OCR.TimeoutSec != nil {
+				cfg.OCR.TimeoutSec = *body.OCR.TimeoutSec
+			}
+			if body.OCR.UseDefault != nil && *body.OCR.UseDefault {
+				cfg.OCR.ModelID = nil
+			} else if body.OCR.ModelID != nil {
+				if *body.OCR.ModelID == 0 {
+					cfg.OCR.ModelID = nil
+				} else {
+					id := *body.OCR.ModelID
+					cfg.OCR.ModelID = &id
+				}
+			}
 		}
-		if body.Git.ReuseWorkspace != nil {
-			h.cfg.Git.ReuseWorkspace = *body.Git.ReuseWorkspace
+		if body.Git != nil {
+			setStr(&cfg.Git.BranchPrefix, body.Git.BranchPrefix)
+			setStr(&cfg.Git.AuthorName, body.Git.AuthorName)
+			setStr(&cfg.Git.AuthorEmail, body.Git.AuthorEmail)
+			if body.Git.Depth != nil {
+				cfg.Git.Depth = *body.Git.Depth
+			}
+			if body.Git.ReuseWorkspace != nil {
+				cfg.Git.ReuseWorkspace = *body.Git.ReuseWorkspace
+			}
+			if body.Git.AutoPush != nil {
+				cfg.Git.AutoPush = *body.Git.AutoPush
+			}
+			if body.Git.KeepDays != nil {
+				cfg.Git.KeepDays = *body.Git.KeepDays
+			}
 		}
-		if body.Git.AutoPush != nil {
-			h.cfg.Git.AutoPush = *body.Git.AutoPush
-		}
-		if body.Git.KeepDays != nil {
-			h.cfg.Git.KeepDays = *body.Git.KeepDays
-		}
-	}
+	})
 	slog.Info("settings updated")
 	OK(c, gin.H{"updated": true})
 }

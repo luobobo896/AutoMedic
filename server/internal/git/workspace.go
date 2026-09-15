@@ -40,7 +40,9 @@ type RepoSpec struct {
 	RepoName   string
 	URL        string
 	Branch     string
-	Auth       *Auth
+	// FixBranch 复用/重建同一任务时指定修复分支名；为空则按 taskID + 时间生成新分支
+	FixBranch string
+	Auth      *Auth
 }
 
 // Workspace 一次任务的隔离工作区
@@ -83,7 +85,9 @@ func (m *Manager) Prepare(ctx context.Context, spec *RepoSpec, taskID uint, sink
 	if abs, err := filepath.Abs(rootAbs); err == nil {
 		rootAbs = abs
 	}
-	dir := filepath.Join(rootAbs, sanitize(spec.ProjectKey), fmt.Sprintf("%d-%s", spec.RepoID, sanitize(spec.RepoName)))
+	// 目录带 taskID：同一仓库的多个任务各自独占工作区，避免半自动确认期间被别的任务
+	// fetch/checkout/reset 覆盖（历史实现只用 repoID，任务 A 的未提交改动会被任务 B 清掉）
+	dir := filepath.Join(rootAbs, sanitize(spec.ProjectKey), fmt.Sprintf("%d-%d-%s", taskID, spec.RepoID, sanitize(spec.RepoName)))
 	// 统一使用绝对路径：子进程 chdir 后相对路径会错位
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
@@ -190,11 +194,14 @@ func (m *Manager) Prepare(ctx context.Context, spec *RepoSpec, taskID uint, sink
 	}
 	ws.BaseCommit = strings.TrimSpace(base)
 
-	// 切出修复分支
-	fixBranch := fmt.Sprintf("%s%d-%s", m.BranchPrefix, taskID, time.Now().Format("20060102-150405"))
-	if out, code, err := m.runOut(ctx, dir, env, "checkout", "-b", fixBranch); err != nil {
+	// 切出修复分支；-B 让同一任务重试/重建时落到同名分支，tasks.branch 保持稳定
+	fixBranch := strings.TrimSpace(spec.FixBranch)
+	if fixBranch == "" {
+		fixBranch = fmt.Sprintf("%s%d-%s", m.BranchPrefix, taskID, time.Now().Format("20060102-150405"))
+	}
+	if out, code, err := m.runOut(ctx, dir, env, "checkout", "-B", fixBranch); err != nil {
 		sink("stderr", execx.ScrubURL(out))
-		return nil, fmt.Errorf("git checkout -b: %w (code=%d)", err, code)
+		return nil, fmt.Errorf("git checkout -B: %w (code=%d)", err, code)
 	}
 	ws.Branch = fixBranch
 	sink("sys", fmt.Sprintf("[git] 修复分支 %s（基线 %s）", fixBranch, ws.BaseCommit[:min(len(ws.BaseCommit), 8)]))
@@ -292,6 +299,19 @@ func (w *Workspace) Head(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(sha), nil
+}
+
+// CurrentBranch 返回工作区当前分支名（detached HEAD 返回空串）
+func (w *Workspace) CurrentBranch(ctx context.Context) (string, error) {
+	out, _, err := w.mgr.runOut(ctx, w.Dir, nil, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	branch := strings.TrimSpace(out)
+	if branch == "HEAD" {
+		return "", nil
+	}
+	return branch, nil
 }
 
 // OpenWorkspace 打开已存在的工作区（人工确认阶段复用）

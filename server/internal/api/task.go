@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -138,6 +139,10 @@ func (h *Handlers) RetryTask(c *gin.Context) {
 	if src.Status == model.TaskStatusFailed && service.CanResumeFinalize(src) {
 		go func() {
 			if err := h.exec.Confirm(context.Background(), id, "web", "重试推送"); err != nil {
+				// 已被其它执行者占用属于并发去重，不是业务失败：不写库，避免把进行中的任务标 failed
+				if errors.Is(err, service.ErrTaskBusy) {
+					return
+				}
 				h.db.Model(&model.Task{}).Where("id = ?", id).Updates(map[string]any{
 					"status": model.TaskStatusFailed, "error_msg": err.Error(),
 				})
@@ -165,6 +170,22 @@ func (h *Handlers) RetryTask(c *gin.Context) {
 	cp.FixCommit = ""
 	cp.Stage = "pending"
 	cp.Branch = ""
+	// 结果与执行信息必须清空：否则新任务开跑前就可能被 CanResumeFinalize 当成「可续推」，
+	// 带着上一轮的补丁/工作区/结论进入推送分支
+	cp.BaseCommit = ""
+	cp.Workspace = ""
+	cp.Patch = ""
+	cp.Summary = ""
+	cp.Diagnosis = ""
+	cp.ChangedFiles = nil
+	cp.DiffStat = ""
+	cp.PRURL = ""
+	cp.DSHModel = ""
+	cp.DSHProvider = ""
+	cp.DSHExitCode = 0
+	cp.DSHCmd = ""
+	cp.InputContext, cp.OutputContext = 0, 0
+	cp.ConfirmedBy, cp.ConfirmedAt, cp.ConfirmNote = "", nil, ""
 	now := time.Now()
 	cp.CreatedAt, cp.UpdatedAt = now, now
 	if err := h.tdb(c).Create(&cp).Error; err != nil {
@@ -181,13 +202,30 @@ func (h *Handlers) CancelTask(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
+	// 归属校验必须在发取消信号之前：exec.Cancel 按 taskID 直接杀进程，
+	// 先发信号再校验等于允许任意租户打断他人正在执行的修复
+	var owned model.Task
+	if err := h.tdb(c).Select("id", "status").First(&owned, id).Error; err != nil {
+		NotFound(c, "任务不存在")
+		return
+	}
+	if owned.Status != model.TaskStatusPending && owned.Status != model.TaskStatusRunning {
+		Fail(c, http.StatusConflict, "任务当前状态（"+string(owned.Status)+"）不允许取消")
+		return
+	}
 	h.exec.Cancel(id)
 	// Cancel() 只发取消信号；无论进程是否还在跑，待执行/执行中的任务都必须落库 cancelled，
-	// 否则 run 虽会跳过 finalize，列表仍显示 running。
-	if err := h.tdb(c).Model(&model.Task{}).Where("id = ? AND status IN ?", id,
+	// 否则 run 虽会跳过 finalize，列表仍显示 running。执行侧收尾写入只覆盖 running 的任务，
+	// 不会把这里的 cancelled 覆盖回 success/failed。
+	upd := h.tdb(c).Model(&model.Task{}).Where("id = ? AND status IN ?", id,
 		[]model.TaskStatus{model.TaskStatusPending, model.TaskStatusRunning}).
-		Updates(map[string]any{"status": model.TaskStatusCancelled, "stage": "cancelled", "finished_at": time.Now()}).Error; err != nil {
-		ServerError(c, err)
+		Updates(map[string]any{"status": model.TaskStatusCancelled, "stage": "cancelled", "finished_at": time.Now()})
+	if upd.Error != nil {
+		ServerError(c, upd.Error)
+		return
+	}
+	if upd.RowsAffected == 0 {
+		Fail(c, http.StatusConflict, "任务状态已变化，取消未生效")
 		return
 	}
 	var t model.Task
@@ -203,9 +241,25 @@ func (h *Handlers) IgnoreTask(c *gin.Context) {
 		BadRequest(c, "id 非法")
 		return
 	}
-	if err := h.tdb(c).Model(&model.Task{}).Where("id = ?", id).
-		Updates(map[string]any{"status": model.TaskStatusIgnored, "stage": "ignored", "finished_at": time.Now()}).Error; err != nil {
-		ServerError(c, err)
+	var owned model.Task
+	if err := h.tdb(c).Select("id", "status").First(&owned, id).Error; err != nil {
+		NotFound(c, "任务不存在")
+		return
+	}
+	// running 的任务必须先停掉进程：否则用户看到「已忽略」，执行侧仍会 commit + push + 发布
+	if owned.Status == model.TaskStatusRunning {
+		h.exec.Cancel(id)
+	}
+	upd := h.tdb(c).Model(&model.Task{}).
+		Where("id = ? AND status IN ?", id, []model.TaskStatus{
+			model.TaskStatusPending, model.TaskStatusRunning, model.TaskStatusFailed}).
+		Updates(map[string]any{"status": model.TaskStatusIgnored, "stage": "ignored", "finished_at": time.Now()})
+	if upd.Error != nil {
+		ServerError(c, upd.Error)
+		return
+	}
+	if upd.RowsAffected == 0 {
+		Fail(c, http.StatusConflict, "任务当前状态（"+string(owned.Status)+"）不允许忽略")
 		return
 	}
 	var t model.Task
@@ -235,8 +289,19 @@ func (h *Handlers) ConfirmTask(c *gin.Context) {
 	if body.Operator == "" {
 		body.Operator = "web"
 	}
+	// 同步原子抢占执行权：双击确认/已被其它执行者占用时返回 409 且不写库，
+	// 只有抢占成功才把后续提交推送交给后台执行
+	task, err := h.exec.ClaimConfirm(id)
+	if err != nil {
+		if errors.Is(err, service.ErrTaskBusy) || errors.Is(err, service.ErrTaskState) {
+			Fail(c, http.StatusConflict, err.Error())
+			return
+		}
+		ServerError(c, err)
+		return
+	}
 	go func() {
-		if err := h.exec.Confirm(contextBackground(), id, body.Operator, body.Note); err != nil {
+		if err := h.exec.ConfirmClaimed(contextBackground(), &task, body.Operator, body.Note); err != nil {
 			h.db.Model(&model.Task{}).Where("id = ?", id).Updates(map[string]any{
 				"status": model.TaskStatusFailed, "error_msg": err.Error(),
 			})

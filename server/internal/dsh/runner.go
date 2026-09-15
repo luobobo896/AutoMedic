@@ -114,6 +114,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		Dir:     req.Workspace,
 		Env:     env,
 		Timeout: time.Duration(r.cfg.TimeoutSec) * time.Second,
+		EnvOnly: true, // 只透传白名单环境，不继承平台进程的 AUTOMEDIC_* 主密钥/数据库口令/JWT 密钥
 	}
 	res := execx.Run(ctx, spec, req.Sink)
 
@@ -178,15 +179,32 @@ func (r *Runner) RenderPatch(p *model.Provider, m *model.LLMModel) (string, erro
 	return s, nil
 }
 
+// dshEnvPassthrough 允许从宿主环境透传的基础变量；dsh 由模型驱动，宿主环境里的
+// AUTOMEDIC_*（加密主密钥、数据库口令、JWT 签名密钥）一律不进入其环境。
+var dshEnvPassthrough = []string{
+	"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "SHELL", "TZ",
+	"SSL_CERT_FILE", "SSL_CERT_DIR",
+}
+
 func (r *Runner) buildEnv(req RunRequest) map[string]string {
-	env := map[string]string{
-		"DSH_PERMISSION_MODE": r.cfg.PermissionMode,
-		"DSH_TELEMETRY_MODE":  "DISABLED",
-		"NO_COLOR":            "1",
-		"FORCE_COLOR":         "0",
-		"CI":                  "1",
-		"TERM":                "dumb",
+	env := map[string]string{}
+	for _, k := range dshEnvPassthrough {
+		if v, ok := os.LookupEnv(k); ok && v != "" {
+			env[k] = v
+		}
 	}
+	// dsh 自身的 DSH_* 设置透传（下面的显式项优先级更高）
+	for _, kv := range os.Environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(k, "DSH_") {
+			env[k] = v
+		}
+	}
+	env["DSH_PERMISSION_MODE"] = r.cfg.PermissionMode
+	env["DSH_TELEMETRY_MODE"] = "DISABLED"
+	env["NO_COLOR"] = "1"
+	env["FORCE_COLOR"] = "0"
+	env["CI"] = "1"
+	env["TERM"] = "dumb"
 	if r.cfg.Home != "" {
 		env["DSH_HOME"] = r.cfg.Home
 	}

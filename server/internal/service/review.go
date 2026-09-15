@@ -74,9 +74,21 @@ func (e *Executor) StartRepoReview(ctx context.Context, repo *model.Repository, 
 		Progress:  "已排队，等待执行",
 		Logs:      "已排队，等待执行",
 	}
+	// 同仓库同时只允许一个审查任务：判定与建单串行化，避免连点起多份 clone + OCR
+	e.reviewMu.Lock()
+	var running int64
+	e.db.Model(&model.ReviewJob{}).
+		Where("repo_id = ? AND status IN ?", repo.ID, []model.ReviewStatus{model.ReviewStatusPending, model.ReviewStatusRunning}).
+		Count(&running)
+	if running > 0 {
+		e.reviewMu.Unlock()
+		return nil, errors.New("该仓库已有审查任务在执行，完成后再发起")
+	}
 	if err := e.db.Create(job).Error; err != nil {
+		e.reviewMu.Unlock()
 		return nil, err
 	}
+	e.reviewMu.Unlock()
 	go e.executeReview(job.ID)
 	return job, nil
 }
@@ -147,6 +159,9 @@ func ReviewJobAPI(job *model.ReviewJob) ReviewJobView {
 }
 
 func (e *Executor) executeReview(jobID uint) {
+	// 并发上限：审查 = 全量 clone + OCR（模型计费），必须背压排队而不是无限并发
+	e.reviewSem <- struct{}{}
+	defer func() { <-e.reviewSem }()
 	var job model.ReviewJob
 	if err := e.db.First(&job, jobID).Error; err != nil {
 		return
@@ -165,7 +180,7 @@ func (e *Executor) executeReview(jobID uint) {
 		return
 	}
 
-	timeout := time.Duration(e.cfg.OCR.TimeoutSec) * time.Second
+	timeout := time.Duration(e.Cfg().OCR.TimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 600 * time.Second
 	}
@@ -206,7 +221,8 @@ func (e *Executor) executeReview(jobID uint) {
 		prog.note("开始调用 OCR")
 	}
 
-	rr, runErr := ocr.Run(ctx, &e.cfg.OCR, dir, ocr.RunSpec{
+	ocrCfg := e.Cfg().OCR
+	rr, runErr := ocr.Run(ctx, &ocrCfg, dir, ocr.RunSpec{
 		Mode: job.Mode, From: job.FromRef, To: job.ToRef, Path: job.Path, ScanAll: job.ScanAll, LLMEnv: llmEnv,
 	}, prog.sink)
 	if rr == nil {
@@ -527,10 +543,14 @@ func (e *Executor) resolveReviewModel(repo *model.Repository) (*model.LLMModel, 
 }
 
 func (e *Executor) ocrModelID() *uint {
-	if e == nil || e.cfg == nil || e.cfg.OCR.ModelID == nil || *e.cfg.OCR.ModelID == 0 {
+	if e == nil {
 		return nil
 	}
-	return e.cfg.OCR.ModelID
+	cfg := e.Cfg()
+	if cfg == nil || cfg.OCR.ModelID == nil || *cfg.OCR.ModelID == 0 {
+		return nil
+	}
+	return cfg.OCR.ModelID
 }
 
 func reviewModelID(repo *model.Repository, project *model.Project, ocrModelID *uint) *uint {

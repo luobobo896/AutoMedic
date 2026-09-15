@@ -28,6 +28,9 @@ type Spec struct {
 	Env     map[string]string // 追加/覆盖的环境变量（值含 __REMOVE__ 表示删除）
 	Timeout time.Duration
 	UsePTY  bool // 预留：是否使用伪终端（dsh 输出非 TTY 时无需）
+	// EnvOnly 为 true 时只使用 Env，不继承宿主环境。用于 dsh 这类由模型驱动、
+	// 工作区内容可影响其行为的子进程，避免平台主密钥/数据库口令随环境泄漏。
+	EnvOnly bool
 }
 
 // Result 执行结果
@@ -47,7 +50,9 @@ func Run(ctx context.Context, spec Spec, sink Sink) Result {
 
 	cmd := exec.CommandContext(ctx, spec.Bin, spec.Args...)
 	cmd.Dir = spec.Dir
-	if len(spec.Env) > 0 {
+	if spec.EnvOnly {
+		cmd.Env = buildEnv(spec.Env)
+	} else if len(spec.Env) > 0 {
 		cmd.Env = append(osEnvironFiltered(), buildEnv(spec.Env)...)
 	}
 	// 独立进程组，便于超时时整组回收
@@ -55,15 +60,15 @@ func Run(ctx context.Context, spec Spec, sink Sink) Result {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return Result{Err: err}
+		return Result{ExitCode: -1, Err: err}
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return Result{Err: err}
+		return Result{ExitCode: -1, Err: err}
 	}
 
 	if err := cmd.Start(); err != nil {
-		return Result{Err: err}
+		return Result{ExitCode: -1, Err: err}
 	}
 
 	// 独立进程组：超时时整组回收派生的子进程，避免子进程残留持有管道导致 wg.Wait 永久阻塞
