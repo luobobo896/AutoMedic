@@ -1,5 +1,15 @@
 <template>
   <div class="am-page">
+    <div class="am-page-head">
+      <div>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">运行设置</h1>
+        <p class="am-page-head__desc">
+          dsh 运行参数与默认修复行为；文件级配置（dsh.bin、发布钩子）只读展示，避免 Web 侧误改运行环境。
+        </p>
+      </div>
+    </div>
+
     <div class="am-card">
       <div class="am-toolbar"><span class="am-card__title">dsh 运行参数</span></div>
       <el-form :model="dsh" label-width="160px">

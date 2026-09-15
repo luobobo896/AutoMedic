@@ -258,6 +258,8 @@ type IngestToken struct {
 type Event struct {
 	TenantID uint `gorm:"index;not null;default:0" json:"tenant_id"`
 	BaseModel
+	// Code 业务号：INC-YYYYMMDD-NNNN（租户内按自然日顺序），用于告警、流程、通知之间的串联
+	Code      string `gorm:"size:32;index" json:"code"`
 	ProjectID uint   `gorm:"index;not null" json:"project_id"`
 	TokenID   *uint  `json:"token_id"`
 	Source    string `gorm:"size:64;index" json:"source"` // sentry | loki | k8s | custom

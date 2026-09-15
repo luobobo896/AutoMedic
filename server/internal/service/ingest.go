@@ -243,10 +243,33 @@ func findOrMergeEvent(db *gorm.DB, tenantID, projectID uint, tokenID *uint, inpu
 		LastSeenAt:  &now,
 		OccurrenceN: 1,
 	}
-	if err := db.Create(ev).Error; err != nil {
-		return nil, false, err
+	// 业务号按「租户 + 自然日」顺序分配；并发下可能撞号，撞号就重新取号重试，
+	// 不能把告警丢掉（唯一索引见 store.AutoMigrate）。
+	for attempt := 0; attempt < 5; attempt++ {
+		ev.Code = NextEventCode(db, tenantID, occurred)
+		err := db.Create(ev).Error
+		if err == nil {
+			return ev, true, nil
+		}
+		if !errors.Is(err, gorm.ErrDuplicatedKey) {
+			return nil, false, err
+		}
+		ev.ID = 0
 	}
-	return ev, true, nil
+	return nil, false, errors.New("事件业务号分配冲突，请重试投递")
+}
+
+// NextEventCode 生成事件业务号：INC-YYYYMMDD-NNNN（租户 + 自然日顺序）。
+// 序号不持久化：取当日已有最大号 +1（不能用「条数 +1」——事件合并会删行，
+// 中间出现空洞时条数法会重复取号，撞唯一索引后投递失败）。
+func NextEventCode(db *gorm.DB, tenantID uint, day time.Time) string {
+	prefix := "INC-" + day.In(time.Local).Format("20060102") + "-"
+	var maxSeq int
+	db.Model(&model.Event{}).
+		Where("tenant_id = ? AND code LIKE ?", tenantID, prefix+"%").
+		Select(fmt.Sprintf("COALESCE(MAX(CAST(SUBSTRING(code FROM %d) AS INTEGER)), 0)", len(prefix)+1)).
+		Scan(&maxSeq)
+	return fmt.Sprintf("%s%04d", prefix, maxSeq+1)
 }
 
 // CompactDuplicateEvents 每个项目+指纹只留最早一条，其余删除。

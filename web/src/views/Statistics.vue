@@ -1,8 +1,14 @@
 <template>
   <div class="am-page">
-    <div class="am-card">
-      <div class="am-toolbar">
-        <span class="am-card__title">时间范围</span>
+    <div class="am-page-head">
+      <div>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">统计报表</h1>
+        <p class="am-page-head__desc">
+          横向看趋势、纵向看分布：哪类故障在反复发生、哪个项目/仓库最需要关注。
+        </p>
+      </div>
+      <div class="am-page-head__actions">
         <el-select v-model="days" style="width:120px" @change="loadAll">
           <el-option label="近 7 天" :value="7" />
           <el-option label="近 14 天" :value="14" />
@@ -15,35 +21,40 @@
         <el-select v-model="repoId" clearable placeholder="全部仓库" style="width:180px" @change="loadAll">
           <el-option v-for="r in repos" :key="r.id" :label="r.name" :value="r.id" />
         </el-select>
-        <div class="am-flex-1" />
         <el-button :icon="'Refresh'" aria-label="刷新" @click="loadAll" />
       </div>
+    </div>
 
-      <div class="am-stat-grid">
-        <div class="am-stat">
-          <div class="label">任务总数</div>
-          <div class="value">{{ ov.total || 0 }}</div>
-        </div>
-        <div class="am-stat">
-          <div class="label">修复成功率</div>
-          <div class="value am-value--success">{{ ov.success_rate || 0 }}%</div>
-        </div>
-        <div class="am-stat">
-          <div class="label">失败</div>
-          <div class="value am-value--danger">{{ ov.failed || 0 }}</div>
-        </div>
-        <div class="am-stat">
-          <div class="label">已忽略（非代码问题）</div>
-          <div class="value">{{ ov.ignored || 0 }}</div>
-        </div>
-        <div class="am-stat">
-          <div class="label">待人工确认</div>
-          <div class="value am-value--warning">{{ ov.confirming || 0 }}</div>
-        </div>
-        <div class="am-stat">
-          <div class="label">平均耗时</div>
-          <div class="value">{{ formatDuration(ov.avg_duration_ms) }}</div>
-        </div>
+    <div class="am-stat-grid am-stat-grid--3">
+      <div class="am-stat">
+        <div class="label">任务总数</div>
+        <div class="value">{{ ov.total || 0 }}</div>
+        <div class="am-stat__hint">近 {{ days }} 天</div>
+      </div>
+      <div class="am-stat">
+        <div class="label">修复成功率</div>
+        <div class="value am-value--success">{{ ov.success_rate || 0 }}%</div>
+        <div class="am-stat__hint">成功 {{ ov.success || 0 }} / 总 {{ ov.total || 0 }}</div>
+      </div>
+      <div class="am-stat">
+        <div class="label">失败</div>
+        <div class="value am-value--danger">{{ ov.failed || 0 }}</div>
+        <div class="am-stat__hint">需人工介入排查</div>
+      </div>
+      <div class="am-stat">
+        <div class="label">已忽略（非代码问题）</div>
+        <div class="value">{{ ov.ignored || 0 }}</div>
+        <div class="am-stat__hint">被规则正确拦截</div>
+      </div>
+      <div class="am-stat">
+        <div class="label">待人工确认</div>
+        <div class="value am-value--warning">{{ ov.confirming || 0 }}</div>
+        <div class="am-stat__hint">半自动排队的流程</div>
+      </div>
+      <div class="am-stat">
+        <div class="label">平均耗时</div>
+        <div class="value">{{ formatDuration(ov.avg_duration_ms) }}</div>
+        <div class="am-stat__hint">端到端耗时</div>
       </div>
     </div>
 

@@ -154,7 +154,8 @@ func (h *Handlers) ListEvents(c *gin.Context) {
 		q = q.Where("events.source = ?", source)
 	}
 	if kw := c.Query("keyword"); kw != "" {
-		q = q.Where("events.title LIKE ? OR events.message LIKE ?", "%"+kw+"%", "%"+kw+"%")
+		q = q.Where("events.title LIKE ? OR events.message LIKE ? OR events.code LIKE ?",
+			"%"+kw+"%", "%"+kw+"%", "%"+kw+"%")
 	}
 	if days := c.Query("days"); days != "" {
 		var d int

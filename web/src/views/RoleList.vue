@@ -2,10 +2,13 @@
   <div class="am-page">
     <div class="am-page-head">
       <div>
-        <h2 class="am-page-title">角色与权限</h2>
-        <p class="am-page-desc">RBAC：用户绑定角色，角色勾选资源权限。内置角色可改权限、不可删除。</p>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">角色与权限</h1>
+        <p class="am-page-head__desc">RBAC：用户绑定角色，角色勾选资源权限。内置角色可改权限、不可删除。</p>
       </div>
-      <el-button :icon="'Plus'" @click="openCreate">新增角色</el-button>
+      <div class="am-page-head__actions">
+        <el-button type="primary" :icon="'Plus'" @click="openCreate">新增角色</el-button>
+      </div>
     </div>
 
     <div class="role-layout">

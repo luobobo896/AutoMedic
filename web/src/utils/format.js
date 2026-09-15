@@ -42,6 +42,13 @@ export const STAGE_LABEL = {
   cancelled: '已取消'
 }
 
+// 事件业务号（INC-YYYYMMDD-NNNN）：事件、流程、统计页统一用它串联；
+// 历史数据没有号时退回内部 id，保证列表不出现空白。
+export function eventCode(e) {
+  if (!e) return '-'
+  return e.code || (e.id ? '#' + e.id : '-')
+}
+
 export function formatDuration(ms) {
   if (ms == null || ms <= 0 || Number.isNaN(Number(ms))) return '-'
   const s = Math.round(ms / 1000)
@@ -57,6 +64,14 @@ export function formatTime(t) {
   const d = new Date(t)
   const pad = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+// 列表页专用：整秒精度在表格里只会挤掉更有用的列，列表统一到分钟
+export function formatTimeShort(t) {
+  if (!t) return '-'
+  const d = new Date(t)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export function formatTokens(n) {

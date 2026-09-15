@@ -9,6 +9,47 @@ import (
 	"github.com/automedic/automedic/internal/model"
 )
 
+// 业务号：同租户同日递增、跨天重新计数、指纹合并后号不变（串联事件与流程的关键）
+func TestEventCodeSequentialPerDay(t *testing.T) {
+	e := newE2E(t, model.FixModeSemi)
+	day1 := time.Date(2026, 9, 15, 10, 0, 0, 0, time.Local)
+	day2 := day1.AddDate(0, 0, 1)
+	send := func(at time.Time, fp string) *model.Event {
+		res, err := Ingest(e.db, e.project.ID, nil, &IngestInput{
+			Source: "sentry", Level: "error", Title: "boom " + fp,
+			Fingerprint: fp, OccurredAt: &at,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Event
+	}
+	if got := send(day1, "fp-a").Code; got != "INC-20260915-0001" {
+		t.Fatalf("首条业务号=%q，期望 INC-20260915-0001", got)
+	}
+	if got := send(day1, "fp-b").Code; got != "INC-20260915-0002" {
+		t.Fatalf("同日第二条业务号=%q，期望 INC-20260915-0002", got)
+	}
+	if got := send(day2, "fp-c").Code; got != "INC-20260916-0001" {
+		t.Fatalf("跨天业务号=%q，期望 INC-20260916-0001", got)
+	}
+	// 同指纹合并：号必须保持首次分配值，否则流程和告警就对不上了
+	if got := send(day1, "fp-a").Code; got != "INC-20260915-0001" {
+		t.Fatalf("合并后业务号=%q，期望沿用 INC-20260915-0001", got)
+	}
+	// 号段中间出现空洞（事件被合并删除）时取最大值 +1，不能重号
+	if err := e.db.Create(&model.Event{
+		TenantID: e.project.TenantID, ProjectID: e.project.ID,
+		Title: "stray", Status: model.EventStatusReceived,
+		Code: "INC-20260916-0009", OccurredAt: day2,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got := NextEventCode(e.db, e.project.TenantID, day2); got != "INC-20260916-0010" {
+		t.Fatalf("空洞场景取号=%q，期望 INC-20260916-0010", got)
+	}
+}
+
 func TestIngestReplayDoesNotViolateProjectName(t *testing.T) {
 	e := newE2E(t, model.FixModeSemi)
 	first := e.ingest(t)

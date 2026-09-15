@@ -72,6 +72,8 @@ func AutoMigrate(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_task_logs_task_seq ON task_logs(task_id, seq)",
 		"CREATE INDEX IF NOT EXISTS idx_events_project_occurred ON events(project_id, occurred_at)",
 		"CREATE INDEX IF NOT EXISTS idx_events_fp_occurred ON events(fingerprint, occurred_at)",
+		// 业务号唯一（历史空值不参与，避免回填前建索引失败）
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_events_tenant_code ON events(tenant_id, code) WHERE code <> ''",
 		"CREATE INDEX IF NOT EXISTS idx_review_jobs_repo_created ON review_jobs(repo_id, created_at)",
 	}
 	for _, sql := range extra {
@@ -79,6 +81,37 @@ func AutoMigrate(db *gorm.DB) error {
 			slog.Debug("skip index", "sql", sql, "err", err)
 		}
 	}
+	if err := BackfillEventCodes(db); err != nil {
+		slog.Warn("事件业务号回填失败（不影响启动，可在下次启动重试）", "err", err)
+	}
+	return nil
+}
+
+// BackfillEventCodes 为历史事件补业务号（幂等，只补空值）。
+// 序号按「租户 + 自然日 + id 顺序」对全表统一编号，已存在的号不会被重复占用。
+func BackfillEventCodes(db *gorm.DB) error {
+	var missing int64
+	if err := db.Model(&model.Event{}).Where("code IS NULL OR code = ''").Count(&missing).Error; err != nil {
+		return err
+	}
+	if missing == 0 {
+		return nil
+	}
+	err := db.Exec(`
+		UPDATE events e SET code = t.code
+		FROM (
+			SELECT id,
+			       'INC-' || to_char(occurred_at, 'YYYYMMDD') || '-' ||
+			       lpad(row_number() OVER (
+			           PARTITION BY tenant_id, occurred_at::date ORDER BY id
+			       )::text, 4, '0') AS code
+			FROM events
+		) t
+		WHERE e.id = t.id AND (e.code IS NULL OR e.code = '')`).Error
+	if err != nil {
+		return err
+	}
+	slog.Info("已为历史事件补业务号", "count", missing)
 	return nil
 }
 

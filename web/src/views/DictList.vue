@@ -1,9 +1,17 @@
 <template>
   <div class="am-page">
+    <div class="am-page-head">
+      <div>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">选项字典</h1>
+        <p class="am-page-head__desc">
+          表单下拉与多选的可选项在此维护：启动只补缺、不覆盖已改项；厂家类型与模型标识是父子关系。
+        </p>
+      </div>
+    </div>
+
     <div class="am-card">
       <div class="am-toolbar">
-        <span class="am-card__title">选项字典</span>
-        <span class="am-text-dim" style="font-size: var(--am-font-xs)">表单下拉/多选的选项在此维护；启动只补缺，不覆盖已改项。厂家类型与模型标识是父子关系。</span>
         <div class="am-flex-1" />
         <el-button type="primary" :icon="'Plus'" @click="openCreate()">新增选项</el-button>
         <el-button :icon="'Refresh'" @click="reload" />

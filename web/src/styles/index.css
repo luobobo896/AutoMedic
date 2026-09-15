@@ -3,34 +3,61 @@
  * CSS 侧统一用 (max-width: 767.98px) 与 (max-width: 1023.98px) 表达。
  */
 :root {
-  /* ===== 表面：canvas / card / inset 三层表面，主色只给动作 ===== */
-  --am-bg: #161618;
-  --am-bg-elevated: #1f1f22;
-  --am-bg-inset: #29292e;
-  --am-nav: #141416;
-  --am-border: #2e2e33;
-  --am-border-strong: #3f3f47;
-  --am-text: #e9e9ec;
-  --am-text-dim: #9a9aa3;
+  /* ===== 表面：画布 / 卡片 / 内嵌 三层，主色只给动作 ===== */
+  --am-bg: #f0f2f5;
+  --am-bg-elevated: #ffffff;
+  --am-bg-inset: #f7f8fa;
+  --am-bg-subtle: #fafafa;
+  --am-border: #e5e7eb;
+  --am-border-strong: #d5d9e0;
+  --am-border-subtle: #f0f0f0;
+  --am-text: #1d2129;
+  --am-text-dim: #4e5969;
+  --am-text-faint: #6b7280;
+
+  /* ===== 侧栏（深蓝工作台导航）===== */
+  --am-nav: #041528;
+  --am-nav-text: rgba(255, 255, 255, 0.72);
+  --am-nav-text-strong: #ffffff;
+  --am-nav-hover: rgba(255, 255, 255, 0.08);
+  --am-nav-group: rgba(255, 255, 255, 0.38);
+  --am-nav-border: rgba(255, 255, 255, 0.08);
 
   /* ===== 语义色 + hover / press / soft 三态 ===== */
-  --am-primary: #6aa1ff;
-  --am-primary-hover: #82b1ff;
-  --am-primary-press: #5589e8;
-  --am-primary-soft: rgba(106, 161, 255, 0.14);
-  --am-on-accent: #10131a;
-  --am-danger: #f2707f;
-  --am-danger-hover: #f58895;
-  --am-danger-press: #d95c6b;
-  --am-danger-soft: rgba(242, 112, 127, 0.14);
-  --am-success: #4cc38a;
-  --am-warning: #e5a54b;
+  --am-primary: #2b6ef0;
+  --am-primary-hover: #4a86ff;
+  --am-primary-press: #1f5bd0;
+  --am-primary-soft: rgba(43, 110, 240, 0.1);
+  --am-on-accent: #ffffff;
+  --am-danger: #dc4c40;
+  --am-danger-hover: #e8685c;
+  --am-danger-press: #c33c31;
+  --am-danger-soft: rgba(220, 76, 64, 0.1);
+  --am-danger-text: #c93a2f;
+  --am-success: #16803c;
+  --am-success-text: #2f7d24;
+  --am-warning: #b45309;
+  --am-warning-text: #a35a09;
+  --am-info-text: #2b6ef0;
+
+  /* ===== 标签（浅底 + 描边 + 深字，对比度达标）===== */
+  --am-tag-bg: #f5f6f8;
+  --am-tag-border: #e0e3e8;
+  --am-tag-info-bg: #eaf1fe;
+  --am-tag-info-border: #bcd3fb;
+  --am-tag-success-bg: #eef7ec;
+  --am-tag-success-border: #c1e0b6;
+  --am-tag-warning-bg: #fff6e6;
+  --am-tag-warning-border: #f4d9a3;
+  --am-tag-danger-bg: #fdeeec;
+  --am-tag-danger-border: #f6c7c1;
+  --am-info: #6b7280;
 
   /* ===== 终端 / diff 调色（token 体系外不再出现裸色值）===== */
-  --am-term-bg: #0d0d0f;
-  --am-term-text: #c8d3e6;
+  --am-term-bg: #0e1116;
+  --am-term-text: #d4dbe6;
   --am-term-sys: #7aa2f7;
-  --am-term-err: #f7768e;
+  --am-term-err: #ff8b7f;
   --am-term-ok: #7fd962;
 
   /* ===== 字号阶梯（7 档，禁止再引入中间值）===== */
@@ -56,13 +83,13 @@
   --am-radius-xs: 4px;
   --am-radius-sm: 6px;
   --am-radius-md: 8px;
-  --am-radius-lg: 12px;
+  --am-radius-lg: 8px;
   --am-radius-full: 999px;
 
   /* ===== 阴影 / 遮罩 / 层级 ===== */
-  --am-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
-  --am-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.3);
-  --am-scrim: rgba(22, 22, 24, 0.56);
+  --am-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  --am-shadow-sm: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --am-scrim: rgba(15, 23, 42, 0.45);
   --am-z-nav: 20;
   --am-z-overlay: 30;
   --am-z-modal: 50;
@@ -94,8 +121,8 @@
   --el-fill-color-blank: var(--am-bg-inset);
   --el-fill-color-light: var(--am-bg-inset);
   --el-bg-color-page: var(--am-bg);
-  --el-mask-color: rgba(22, 22, 24, 0.72);
-  --el-mask-color-extra-light: rgba(22, 22, 24, 0.45);
+  --el-mask-color: rgba(240, 242, 245, 0.72);
+  --el-mask-color-extra-light: rgba(240, 242, 245, 0.45);
   --el-text-color-primary: var(--am-text);
   --el-text-color-regular: var(--am-text);
   --el-text-color-secondary: var(--am-text-dim);
@@ -103,22 +130,45 @@
   --el-font-size-base: var(--am-font-md);
 }
 
-/* EP 主色与派生色阶：EP 深色主题把默认蓝写在 html.dark（0,1,1），
-   比 :root（0,1,0）更具体 —— 必须用 html.dark:root 才真正覆盖，
-   否则 link/plain 按钮与 secondary 按钮 hover 会露出 EP 蓝（一屏两套蓝）。 */
-:root,
-html.dark:root {
+/* EP 主色/语义色派生色阶（light-1..9）统一由 token 混合生成：
+   EP 默认色阶是构建期写死的 hex，不覆盖就会在浅色主题里露出 EP 自带的
+   第二套蓝/绿/橙（一屏两色）。混合基准取卡片白，plain 按钮与 tag 才干净。 */
+:root {
+  --am-mix-base: #ffffff;
   --el-color-primary: var(--am-primary);
-  --el-color-primary-light-1: color-mix(in srgb, var(--am-primary) 90%, var(--am-bg));
-  --el-color-primary-light-2: color-mix(in srgb, var(--am-primary) 80%, var(--am-bg));
-  --el-color-primary-light-3: color-mix(in srgb, var(--am-primary) 70%, var(--am-bg));
-  --el-color-primary-light-4: color-mix(in srgb, var(--am-primary) 60%, var(--am-bg));
-  --el-color-primary-light-5: color-mix(in srgb, var(--am-primary) 50%, var(--am-bg));
-  --el-color-primary-light-6: color-mix(in srgb, var(--am-primary) 40%, var(--am-bg));
-  --el-color-primary-light-7: color-mix(in srgb, var(--am-primary) 30%, var(--am-bg));
-  --el-color-primary-light-8: color-mix(in srgb, var(--am-primary) 20%, var(--am-bg));
-  --el-color-primary-light-9: color-mix(in srgb, var(--am-primary) 10%, var(--am-bg));
-  --el-color-primary-dark-2: var(--am-primary-hover);
+  --el-color-primary-dark-2: var(--am-primary-press);
+  --el-color-danger: var(--am-danger);
+  --el-color-danger-dark-2: var(--am-danger-press);
+  --el-color-success: var(--am-success);
+  --el-color-warning: var(--am-warning);
+
+  --el-color-primary-light-1: color-mix(in srgb, var(--am-primary) 90%, var(--am-mix-base));
+  --el-color-primary-light-2: color-mix(in srgb, var(--am-primary) 80%, var(--am-mix-base));
+  --el-color-primary-light-3: color-mix(in srgb, var(--am-primary) 70%, var(--am-mix-base));
+  --el-color-primary-light-4: color-mix(in srgb, var(--am-primary) 58%, var(--am-mix-base));
+  --el-color-primary-light-5: color-mix(in srgb, var(--am-primary) 46%, var(--am-mix-base));
+  --el-color-primary-light-6: color-mix(in srgb, var(--am-primary) 34%, var(--am-mix-base));
+  --el-color-primary-light-7: color-mix(in srgb, var(--am-primary) 24%, var(--am-mix-base));
+  --el-color-primary-light-8: color-mix(in srgb, var(--am-primary) 16%, var(--am-mix-base));
+  --el-color-primary-light-9: color-mix(in srgb, var(--am-primary) 8%, var(--am-mix-base));
+
+  --el-color-success-light-3: color-mix(in srgb, var(--am-success) 70%, var(--am-mix-base));
+  --el-color-success-light-5: color-mix(in srgb, var(--am-success) 46%, var(--am-mix-base));
+  --el-color-success-light-8: color-mix(in srgb, var(--am-success) 16%, var(--am-mix-base));
+  --el-color-success-light-9: color-mix(in srgb, var(--am-success) 8%, var(--am-mix-base));
+  --el-color-warning-light-3: color-mix(in srgb, var(--am-warning) 70%, var(--am-mix-base));
+  --el-color-warning-light-5: color-mix(in srgb, var(--am-warning) 46%, var(--am-mix-base));
+  --el-color-warning-light-8: color-mix(in srgb, var(--am-warning) 16%, var(--am-mix-base));
+  --el-color-warning-light-9: color-mix(in srgb, var(--am-warning) 8%, var(--am-mix-base));
+  --el-color-danger-light-3: color-mix(in srgb, var(--am-danger) 70%, var(--am-mix-base));
+  --el-color-danger-light-5: color-mix(in srgb, var(--am-danger) 46%, var(--am-mix-base));
+  --el-color-danger-light-8: color-mix(in srgb, var(--am-danger) 16%, var(--am-mix-base));
+  --el-color-danger-light-9: color-mix(in srgb, var(--am-danger) 8%, var(--am-mix-base));
+  --el-color-info: var(--am-info);
+  --el-color-info-light-3: color-mix(in srgb, var(--am-info) 70%, var(--am-mix-base));
+  --el-color-info-light-5: color-mix(in srgb, var(--am-info) 46%, var(--am-mix-base));
+  --el-color-info-light-8: color-mix(in srgb, var(--am-info) 16%, var(--am-mix-base));
+  --el-color-info-light-9: color-mix(in srgb, var(--am-info) 8%, var(--am-mix-base));
 }
 
 * { box-sizing: border-box; }
@@ -128,7 +178,7 @@ html, body, #app {
   margin: 0;
   padding: 0;
   background: var(--am-bg);
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
@@ -215,6 +265,8 @@ a { text-decoration: none; }
 .am-proj__ops .el-button { min-height: 36px; }
 
 .am-flex-1 { flex: 1; }
+.am-mt-3 { margin-top: var(--am-space-3); }
+.am-mt-4 { margin-top: var(--am-space-4); }
 
 .am-mono {
   font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
@@ -223,6 +275,22 @@ a { text-decoration: none; }
 
 .am-text-dim { color: var(--am-text-dim); }
 .am-text-danger { color: var(--am-danger); }
+/* 行内跳转：真链接（可键盘聚焦、可新标签打开），不用无 href 的伪链接 */
+.am-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--am-primary);
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: var(--am-radius-xs);
+}
+.am-link:hover { text-decoration: underline; }
+.am-link:focus-visible { outline: 2px solid var(--am-primary); outline-offset: 2px; }
+/* 行内补充说明：比正文小一档，用于表格副行/卡片脚注 */
+.am-hint { font-size: var(--am-font-xs); line-height: 1.6; }
+.am-text-faint { color: var(--am-text-faint); }
 
 .am-stat-grid {
   display: grid;
@@ -230,6 +298,7 @@ a { text-decoration: none; }
   gap: var(--am-space-3);
   margin-bottom: var(--am-space-4);
 }
+.am-stat-grid--3 { grid-template-columns: repeat(3, 1fr); }
 
 .am-stat {
   background: var(--am-bg-elevated);
@@ -240,6 +309,7 @@ a { text-decoration: none; }
 
 .am-stat .label { font-size: var(--am-font-sm); color: var(--am-text-dim); }
 .am-stat .value { font-size: var(--am-font-num); font-weight: 600; margin-top: 6px; }
+.am-stat__hint { margin-top: 6px; font-size: var(--am-font-xs); color: var(--am-text-faint); }
 
 /* 语义色数值：取代视图内联色（警告/成功/危险的裸色值） */
 .am-value--warning { color: var(--am-warning); }
@@ -303,14 +373,71 @@ a { text-decoration: none; }
 .am-diff .add { color: var(--am-term-ok); }
 .am-diff .del { color: var(--am-term-err); }
 .am-diff .hunk { color: var(--am-term-sys); }
+.am-diff--tall { max-height: 560px; }
 
-/* ===== Element Plus 深色柔和适配 ===== */
+/* 变更文件清单：长路径按容器换行，不用 tag 撑破栅格 */
+.am-filelist { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.am-filelist__item {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--am-font-xs);
+  line-height: 1.6;
+  color: var(--am-text);
+  overflow-wrap: anywhere;
+}
+
+/* ===== Element Plus 浅色工作台适配 ===== */
 .el-card { --el-card-bg-color: var(--am-bg-elevated); border-color: var(--am-border); border-radius: var(--am-radius); }
 
 .el-table { --el-table-bg-color: var(--am-bg-elevated); --el-table-tr-bg-color: var(--am-bg-elevated);
-  --el-table-header-bg-color: var(--am-bg-inset); --el-table-border-color: var(--am-border);
+  --el-table-header-bg-color: var(--am-bg-subtle); --el-table-border-color: var(--am-border-subtle);
   --el-table-text-color: var(--am-text); --el-table-header-text-color: var(--am-text-dim);
   --el-table-row-hover-bg-color: var(--am-bg-inset); border-radius: var(--am-radius-sm); overflow: hidden; width: 100%; }
+.el-table th.el-table__cell { font-weight: 600; }
+/* 表格操作列：多个文字动作要能并排，不能被按钮间距挤到换行 */
+.el-table .el-button + .el-button { margin-left: var(--am-space-1); }
+.el-table .el-button.is-link { padding-inline: 6px; }
+
+/* ===== 标签：浅底 + 描边 + 深字（正文级对比度，且不靠颜色单独表意）===== */
+.el-tag {
+  border-radius: var(--am-radius-xs);
+  font-weight: 500;
+}
+.el-tag:not(.el-tag--dark) {
+  --el-tag-bg-color: var(--am-tag-bg);
+  --el-tag-border-color: var(--am-tag-border);
+  --el-tag-text-color: var(--am-text-dim);
+}
+.el-tag--primary:not(.el-tag--dark) {
+  --el-tag-bg-color: var(--am-tag-info-bg);
+  --el-tag-border-color: var(--am-tag-info-border);
+  --el-tag-text-color: var(--am-info-text);
+}
+.el-tag--success:not(.el-tag--dark) {
+  --el-tag-bg-color: var(--am-tag-success-bg);
+  --el-tag-border-color: var(--am-tag-success-border);
+  --el-tag-text-color: var(--am-success-text);
+}
+.el-tag--warning:not(.el-tag--dark) {
+  --el-tag-bg-color: var(--am-tag-warning-bg);
+  --el-tag-border-color: var(--am-tag-warning-border);
+  --el-tag-text-color: var(--am-warning-text);
+}
+.el-tag--danger:not(.el-tag--dark) {
+  --el-tag-bg-color: var(--am-tag-danger-bg);
+  --el-tag-border-color: var(--am-tag-danger-border);
+  --el-tag-text-color: var(--am-danger-text);
+}
+.el-tag--info:not(.el-tag--dark) {
+  --el-tag-bg-color: var(--am-tag-bg);
+  --el-tag-border-color: var(--am-tag-border);
+  --el-tag-text-color: var(--am-text-dim);
+}
+.el-tag--dark { color: var(--am-on-accent); border-color: transparent; }
+.el-tag--primary.el-tag--dark { background-color: var(--am-primary); }
+.el-tag--success.el-tag--dark { background-color: var(--am-success); }
+.el-tag--warning.el-tag--dark { background-color: var(--am-warning); }
+.el-tag--danger.el-tag--dark { background-color: var(--am-danger); }
+.el-tag--info.el-tag--dark { background-color: var(--am-info); }
 .am-table-fill,
 .am-table-fill .el-table,
 .am-table-fill .el-table__inner-wrapper,
@@ -660,8 +787,134 @@ a { text-decoration: none; }
   padding: 1px 5px;
 }
 
+/* ===== 页面头：面包屑 + 标题 + 主行动点（各页统一入口）===== */
+.am-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--am-space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--am-space-4);
+}
+.am-page-head__crumb { font-size: var(--am-font-xs); color: var(--am-text-faint); margin-bottom: 2px; }
+.am-page-head__title {
+  margin: 0;
+  font-size: var(--am-font-2xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--am-text);
+}
+.am-page-head__desc {
+  margin-top: 6px;
+  font-size: var(--am-font-sm);
+  color: var(--am-text-dim);
+  max-width: 76ch;
+  line-height: var(--am-leading-relaxed);
+}
+.am-page-head__actions { display: flex; align-items: center; gap: var(--am-space-2); flex-wrap: wrap; }
+
+/* ===== 详情双栏：主区 + 处置链路侧栏 ===== */
+.am-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(280px, 1fr);
+  gap: var(--am-space-4);
+  align-items: start;
+}
+.am-card--flush { margin-bottom: 0; }
+
+/* ===== 元信息网格（label/value 成对，替代表格式罗列）===== */
+.am-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--am-space-3) var(--am-space-5);
+}
+.am-meta-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.am-meta--full { grid-column: 1 / -1; }
+.am-meta__label { font-size: var(--am-font-xs); color: var(--am-text-faint); }
+.am-meta__value {
+  margin-top: 3px;
+  font-size: var(--am-font-sm);
+  color: var(--am-text);
+  overflow-wrap: anywhere;
+}
+.am-meta__value--pre { white-space: pre-wrap; }
+
+/* ===== 处置链路时间线（事件 → 分析 → 修复 → 验证 → 提交）===== */
+.am-timeline { position: relative; margin: 0; padding: 0 0 0 18px; list-style: none; }
+.am-timeline::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 6px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--am-border);
+}
+.am-timeline__item { position: relative; padding-bottom: var(--am-space-3); }
+.am-timeline__item:last-child { padding-bottom: 0; }
+.am-timeline__item::before {
+  content: '';
+  position: absolute;
+  left: -18px;
+  top: 4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--am-bg-elevated);
+  border: 1.5px solid var(--am-border-strong);
+}
+.am-timeline__item.is-done::before { background: var(--am-success); border-color: var(--am-success); }
+.am-timeline__item.is-active::before {
+  background: var(--am-primary);
+  border-color: var(--am-primary);
+  box-shadow: 0 0 0 3px var(--am-primary-soft);
+}
+.am-timeline__item.is-failed::before { background: var(--am-danger); border-color: var(--am-danger); }
+.am-timeline__title { font-size: var(--am-font-sm); font-weight: 600; color: var(--am-text); }
+.am-timeline__state { margin-left: 6px; font-weight: 400; font-size: var(--am-font-xs); color: var(--am-text-dim); }
+.am-timeline__desc { margin-top: 2px; font-size: var(--am-font-xs); color: var(--am-text-faint); line-height: var(--am-leading-relaxed); }
+
+/* ===== 流程阶段轨道（横排阶段卡：一眼看到卡在第几步）===== */
+.am-stage-rail { display: flex; gap: var(--am-space-3); overflow-x: auto; padding-bottom: var(--am-space-1); }
+.am-stage {
+  flex: 1 1 0;
+  min-width: 150px;
+  background: var(--am-bg-subtle);
+  border: 1px solid var(--am-border);
+  border-radius: var(--am-radius-md);
+  padding: 10px var(--am-space-3);
+}
+.am-stage.is-active { background: var(--am-tag-info-bg); border-color: var(--am-tag-info-border); }
+.am-stage.is-done { background: var(--am-bg-elevated); border-color: var(--am-tag-success-border); }
+.am-stage.is-failed { background: var(--am-tag-danger-bg); border-color: var(--am-tag-danger-border); }
+.am-stage__head { display: flex; align-items: center; gap: 6px; }
+.am-stage__no {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--am-radius-xs);
+  background: var(--am-bg-inset);
+  color: var(--am-text-faint);
+  font-size: var(--am-font-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.am-stage.is-active .am-stage__no { background: var(--am-primary); color: var(--am-on-accent); }
+.am-stage.is-done .am-stage__no { background: var(--am-success); color: var(--am-on-accent); }
+.am-stage.is-failed .am-stage__no { background: var(--am-danger); color: var(--am-on-accent); }
+.am-stage__title { font-size: var(--am-font-sm); font-weight: 600; }
+.am-stage__rows { margin-top: var(--am-space-2); display: flex; flex-direction: column; gap: 6px; }
+.am-stage__row { display: flex; align-items: baseline; gap: 6px; font-size: var(--am-font-xs); color: var(--am-text-dim); }
+.am-stage__mark { flex: none; font-weight: 600; }
+.am-stage__row.is-ok .am-stage__mark { color: var(--am-success-text); }
+.am-stage__row.is-failed .am-stage__mark { color: var(--am-danger-text); }
+.am-stage__row.is-wait .am-stage__mark { color: var(--am-text-faint); }
+.am-stage__text { min-width: 0; overflow-wrap: anywhere; }
+
 @media (max-width: 1023.98px) {
   .am-page { padding: var(--am-space-4); }
+  .am-detail-grid { grid-template-columns: 1fr; }
   .am-proj {
     grid-template-columns: minmax(0, 1fr) auto;
   }

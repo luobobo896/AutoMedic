@@ -1,5 +1,15 @@
 <template>
   <div class="am-page">
+    <div class="am-page-head">
+      <div>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">修复流程</h1>
+        <p class="am-page-head__desc">
+          每个流程对应一次 dsh 修复：准备隔离工作区 → 改代码 → 产出补丁 →（半自动）人工确认 → 提交推送。
+        </p>
+      </div>
+    </div>
+
     <div class="am-card">
       <div class="am-toolbar">
         <el-select v-model="query.project_id" clearable placeholder="全部项目" style="width:180px" @change="search">
@@ -13,44 +23,57 @@
           <el-option label="半自动" value="semi" />
         </el-select>
         <el-input v-model="query.keyword" placeholder="摘要 / 分支 / 提交" clearable style="width:200px" @keyup.enter="search" @clear="search" />
+        <el-button type="primary" :icon="'Search'" @click="search">查询</el-button>
         <div class="am-flex-1" />
         <el-button :icon="'Refresh'" @click="load" />
       </div>
 
       <el-table :data="list" v-loading="loading" size="small" @row-click="row => $router.push('/tasks/' + row.id)">
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column label="状态" width="120">
+        <el-table-column label="流程" width="70">
+          <template #default="{ row }"><span class="am-mono">#{{ row.id }}</span></template>
+        </el-table-column>
+        <el-table-column label="事件号" width="168">
+          <template #default="{ row }">
+            <router-link
+              v-if="row.event"
+              class="am-link am-mono"
+              :to="{ path: '/events', query: { code: eventCode(row.event) } }"
+              @click.stop
+            >
+              {{ eventCode(row.event) }}
+            </router-link>
+            <span v-else class="am-text-faint">手动触发</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="116">
           <template #default="{ row }">
             <el-tag size="small" :type="STATUS_META[row.status]?.type">{{ STATUS_META[row.status]?.label }}</el-tag>
-            <div class="am-text-dim" style="font-size: var(--am-font-xs)">{{ STAGE_LABEL[row.stage] || '' }}</div>
+            <div class="am-text-dim am-hint">{{ STAGE_LABEL[row.stage] || '' }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="项目 / 仓库" width="190">
+        <el-table-column label="触发事件" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
-            <div>{{ row.project?.name || '-' }}</div>
-            <div class="am-text-dim" style="font-size: var(--am-font-xs)">{{ row.repo?.name || '-' }}</div>
+            <div>{{ row.event?.title || '手动触发' }}</div>
+            <div class="am-text-dim am-hint">{{ row.project?.name || '-' }} · {{ row.repo?.name || '-' }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="触发事件" min-width="240" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.event?.title || '手动触发' }}</template>
-        </el-table-column>
-        <el-table-column label="模式" width="90">
+        <el-table-column label="模式" width="84">
           <template #default="{ row }">
             <el-tag size="small" effect="plain" :type="row.mode === 'auto' ? 'danger' : 'warning'">
               {{ row.mode === 'auto' ? '全自动' : '半自动' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="模型" width="150">
+        <el-table-column label="模型" width="120">
           <template #default="{ row }">{{ row.model?.name || row.dsh_model || '-' }}</template>
         </el-table-column>
-        <el-table-column label="耗时" width="90">
+        <el-table-column label="耗时" width="72">
           <template #default="{ row }">{{ formatDuration(row.duration_ms) }}</template>
         </el-table-column>
-        <el-table-column label="创建时间" width="170">
-          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+        <el-table-column label="创建时间" width="132">
+          <template #default="{ row }">{{ formatTimeShort(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="$router.push('/tasks/' + row.id)">详情</el-button>
             <el-button
@@ -58,10 +81,10 @@
               type="primary"
               :disabled="!canRetry(row)"
               :loading="retryingId === row.id"
-              :title="canRetry(row) ? '' : retryDisabledHint(row)"
+              :title="canRetry(row) ? (canResumePush(row) ? '重试推送（不重跑 dsh）' : '重试修复') : retryDisabledHint(row)"
               :aria-disabled="!canRetry(row)"
               @click.stop="retry(row)"
-            >{{ canResumePush(row) ? '重试推送' : '重试' }}</el-button>
+            >{{ canResumePush(row) ? '续推' : '重试' }}</el-button>
             <el-button
               link
               :disabled="!canCancel(row)"
@@ -82,10 +105,12 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { listTasks, retryTask, cancelTask, listProjects } from '@/api'
-import { STATUS_META, STAGE_LABEL, formatDuration, formatTime } from '@/utils/format'
+import { STATUS_META, STAGE_LABEL, formatDuration, formatTimeShort, eventCode } from '@/utils/format'
 import { ElMessage } from 'element-plus'
 
+const router = useRouter()
 const list = ref([])
 const projects = ref([])
 const total = ref(0)

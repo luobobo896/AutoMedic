@@ -3,21 +3,21 @@
     <div v-if="compact && !collapsed" class="nav-scrim" @click="collapsed = true" />
     <el-aside v-show="!(compact && collapsed)" :width="asideWidth" class="aside">
       <div class="logo">
-        <el-icon :size="22" class="logo-icon"><FirstAidKit /></el-icon>
-        <span v-show="!collapsed">AutoMedic</span>
+        <span class="logo-icon"><el-icon :size="16"><FirstAidKit /></el-icon></span>
+        <span v-show="!collapsed || compact" class="logo-text">AutoMedic<em>自愈平台</em></span>
       </div>
       <el-menu
         :default-active="activePath"
         :collapse="collapsed && !compact"
-        background-color="transparent"
-        text-color="var(--am-text-dim)"
-        active-text-color="var(--am-primary)"
+        class="nav"
         @select="onMenuSelect"
       >
-        <el-menu-item v-for="m in menus" :key="m.path" :index="m.path">
-          <el-icon><component :is="m.meta.icon" /></el-icon>
-          <template #title>{{ m.meta.title }}</template>
-        </el-menu-item>
+        <el-menu-item-group v-for="g in menuGroups" :key="g.name" :title="g.name">
+          <el-menu-item v-for="m in g.items" :key="m.path" :index="m.path">
+            <el-icon><component :is="m.meta.icon" /></el-icon>
+            <template #title>{{ m.meta.title }}</template>
+          </el-menu-item>
+        </el-menu-item-group>
       </el-menu>
     </el-aside>
 
@@ -25,10 +25,6 @@
       <el-header class="header">
         <div class="header-left">
           <el-button text :icon="collapsed ? 'Expand' : 'Fold'" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" @click="collapsed = !collapsed" />
-          <el-breadcrumb separator="/">
-            <el-breadcrumb-item>AutoMedic</el-breadcrumb-item>
-            <el-breadcrumb-item>{{ route.meta.title || '' }}</el-breadcrumb-item>
-          </el-breadcrumb>
         </div>
         <div class="header-right">
           <el-tag size="small" type="info" effect="plain" class="dsh-tag">dsh --profile headless</el-tag>
@@ -112,6 +108,27 @@ const pwdLoading = ref(false)
 const pwd = ref({ old_password: '', new_password: '' })
 
 const menus = computed(() => visibleMenus())
+
+// 业务分组：把 16 个平铺菜单按「看盘 → 接入 → 配置 → 管理」收敛，
+// 新用户一眼看到主链路，管理配置类不再和业务页抢视线。
+const MENU_GROUPS = [
+  { name: '运营', paths: ['/', '/events', '/tasks', '/statistics'] },
+  { name: '接入', paths: ['/projects', '/repos', '/rules', '/tokens', '/credentials'] },
+  { name: '配置', paths: ['/models', '/settings', '/dicts'] },
+  { name: '系统管理', paths: ['/users', '/roles', '/tenants'] }
+]
+const menuGroups = computed(() => {
+  const rest = [...menus.value]
+  const groups = MENU_GROUPS.map((g) => {
+    const items = g.paths
+      .map((p) => rest.find((m) => m.path === p))
+      .filter(Boolean)
+    items.forEach((m) => rest.splice(rest.indexOf(m), 1))
+    return { name: g.name, items }
+  }).filter((g) => g.items.length)
+  if (rest.length) groups.push({ name: '其他', items: rest })
+  return groups
+})
 const displayName = computed(() => state.user?.display_name || state.user?.username || '未登录')
 const roleNames = computed(() => (state.user?.roles || []).join('、'))
 const fillMain = computed(() => route.path.startsWith('/tasks/') && route.path !== '/tasks')
@@ -167,7 +184,7 @@ async function submitPassword() {
   display: flex;
   flex-direction: column;
 }
-.aside { background: var(--am-nav); border-right: 1px solid var(--am-border); transition: width var(--am-duration); overflow: hidden; }
+.aside { background: var(--am-nav); border-right: none; transition: width var(--am-duration); overflow: hidden; }
 .nav-scrim {
   position: absolute;
   inset: 0;
@@ -182,8 +199,37 @@ async function submitPassword() {
   height: 100%;
   box-shadow: var(--am-shadow);
 }
-.logo { height: 56px; display: flex; align-items: center; gap: var(--am-space-2); padding: 0 18px; color: var(--am-text); font-weight: 600; font-size: var(--am-font-lg); }
-.logo-icon { color: var(--am-primary); }
+.logo {
+  height: 56px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--am-space-4);
+  color: var(--am-nav-text-strong);
+  font-weight: 600;
+  font-size: var(--am-font-lg);
+  border-bottom: 1px solid var(--am-nav-border);
+  white-space: nowrap;
+}
+.logo-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--am-radius-sm);
+  background: var(--am-primary);
+  color: var(--am-on-accent);
+}
+.logo-text { display: flex; align-items: baseline; gap: 6px; }
+.logo-text em {
+  font-style: normal;
+  font-size: var(--am-font-xs);
+  font-weight: 400;
+  color: var(--am-nav-group);
+}
 .header {
   display: flex;
   align-items: center;
@@ -226,16 +272,43 @@ async function submitPassword() {
 
 .user-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 10px; border-radius: 999px;
-  background: var(--am-bg-inset); border: 1px solid var(--am-border);
+  padding: 4px 10px 4px 4px; border-radius: 999px;
+  background: var(--am-bg-elevated); border: 1px solid var(--am-border);
   cursor: pointer; font-size: var(--am-font-sm); color: var(--am-text);
   transition: border-color .18s ease;
 }
 .user-chip:hover { border-color: var(--am-border-strong); }
+.user-chip :deep(.el-icon:first-child) {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--am-primary-soft); color: var(--am-primary);
+  display: flex; align-items: center; justify-content: center;
+}
 .user-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .user-meta { padding: 8px 14px 10px; border-bottom: 1px solid var(--am-border); margin-bottom: 4px; }
 .user-meta-name { font-size: var(--am-font-md); font-weight: 600; }
 .user-meta-sub { margin-top: 2px; font-size: var(--am-font-xs); color: var(--am-text-dim); }
-:deep(.el-menu) { border-right: none; }
+.nav { border-right: none; background: transparent; padding-bottom: var(--am-space-3); }
+.nav :deep(.el-menu-item-group__title) {
+  padding: var(--am-space-4) var(--am-space-4) 6px;
+  font-size: var(--am-font-xs);
+  line-height: 1.4;
+  color: var(--am-nav-group);
+  letter-spacing: .04em;
+}
+.nav :deep(.el-menu-item) {
+  height: 44px;
+  line-height: 44px;
+  margin: 2px var(--am-space-2);
+  border-radius: var(--am-radius-sm);
+  color: var(--am-nav-text);
+  font-size: var(--am-font-md);
+  transition: background-color var(--am-duration) var(--am-easing), color var(--am-duration) var(--am-easing);
+}
+.nav :deep(.el-menu-item .el-icon) { width: 18px; font-size: var(--am-font-lg); }
+.nav :deep(.el-menu-item:hover),
+.nav :deep(.el-menu-item:focus) { background: var(--am-nav-hover); color: var(--am-nav-text-strong); }
+.nav :deep(.el-menu-item.is-active) { background: var(--am-primary); color: var(--am-nav-text-strong); font-weight: 600; }
+.nav :deep(.el-menu--collapse .el-menu-item) { margin: 2px var(--am-space-1); }
+.nav :deep(.el-menu-item:focus-visible) { outline: 2px solid var(--am-nav-text-strong); outline-offset: -2px; }
 </style>

@@ -1,5 +1,15 @@
 <template>
   <div class="am-page">
+    <div class="am-page-head">
+      <div>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">仓库管理</h1>
+        <p class="am-page-head__desc">
+          仓库是 dsh 实际改代码的地方：绑定凭证与模型后，修复流程会在隔离工作区里 clone 对应分支。
+        </p>
+      </div>
+    </div>
+
     <div class="am-card">
       <div class="am-toolbar">
         <el-select v-model="query.project_id" clearable placeholder="全部项目" style="width:200px" @change="load">

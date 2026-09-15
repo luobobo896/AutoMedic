@@ -1,5 +1,15 @@
 <template>
   <div class="am-page">
+    <div class="am-page-head">
+      <div>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">项目令牌</h1>
+        <p class="am-page-head__desc">
+          采集器用令牌把告警投递进平台：请求头 <span class="am-mono">X-AM-Token</span>，令牌明文只在创建时显示一次。
+        </p>
+      </div>
+    </div>
+
     <div class="am-card">
       <div class="am-toolbar">
         <el-button type="primary" :icon="'Plus'" @click="openCreate">创建令牌</el-button>

@@ -1,9 +1,18 @@
 <template>
   <div class="am-page">
+    <div class="am-page-head">
+      <div>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">修复规则</h1>
+        <p class="am-page-head__desc">
+          规则决定告警是否进入代码修复流程：命中级别/关键字才开流程，排除词拦下业务拒绝与第三方故障，未命中默认忽略。
+        </p>
+      </div>
+    </div>
+
     <div class="am-card">
       <div class="am-toolbar">
-        <span class="am-card__title">修复规则</span>
-        <span class="am-text-dim" style="font-size: var(--am-font-xs)">规则决定告警是否进入代码修复流程，未命中规则的事件默认忽略</span>
+        <span class="am-text-dim am-hint">按优先级从上到下匹配，优先级相同的按创建顺序</span>
         <div class="am-flex-1" />
         <el-button type="primary" :icon="'Plus'" @click="openCreate">新增规则</el-button>
         <el-button :icon="'Refresh'" @click="load" />

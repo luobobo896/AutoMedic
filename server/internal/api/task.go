@@ -32,7 +32,10 @@ func (h *Handlers) ListTasks(c *gin.Context) {
 		q = q.Where("tasks.mode = ?", mode)
 	}
 	if kw := c.Query("keyword"); kw != "" {
-		q = q.Where("tasks.summary LIKE ? OR tasks.branch LIKE ? OR tasks.fix_commit LIKE ?", "%"+kw+"%", "%"+kw+"%", "%"+kw+"%")
+		// 关键字同时匹配流程自身字段与「来源事件业务号」，方便从 INC-… 反查流程
+		byCode := h.tdb(c).Model(&model.Event{}).Select("id").Where("code LIKE ?", "%"+kw+"%")
+		q = q.Where("tasks.summary LIKE ? OR tasks.branch LIKE ? OR tasks.fix_commit LIKE ? OR tasks.event_id IN (?)",
+			"%"+kw+"%", "%"+kw+"%", "%"+kw+"%", byCode)
 	}
 	if from := c.Query("from"); from != "" {
 		q = q.Where("tasks.created_at >= ?", from)

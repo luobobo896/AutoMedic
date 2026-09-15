@@ -2,8 +2,9 @@
   <div class="am-page am-page-model">
     <div class="am-page-head">
       <div>
-        <h2 class="am-page-title">模型配置</h2>
-        <p class="am-page-desc">厂家只配接入信息；输入/输出上下文在每个模型上设置，调用 dsh 时通过 patch 注入。</p>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">大模型配置</h1>
+        <p class="am-page-head__desc">厂家只配接入信息；输入/输出上下文在每个模型上设置，调用 dsh 时通过 patch 注入。</p>
       </div>
     </div>
 
@@ -546,11 +547,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.am-page-model { max-width: 1200px; margin: 0 auto; padding: 28px 24px 48px; }
-.am-page-head { margin-bottom: 24px; }
-.am-page-title { margin: 0; font-size: var(--am-font-2xl); font-weight: 700; letter-spacing: .2px; }
-.am-page-desc { margin: 6px 0 0; font-size: var(--am-font-sm); color: var(--am-text-dim); line-height: 1.6; }
-
 .am-section { margin-bottom: 28px; }
 .am-section-head { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
 .am-section-title { margin: 0; font-size: var(--am-font-lg); font-weight: 600; }

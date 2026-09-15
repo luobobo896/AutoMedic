@@ -2,10 +2,13 @@
   <div class="am-page">
     <div class="am-page-head">
       <div>
-        <h2 class="am-page-title">用户管理</h2>
-        <p class="am-page-desc">按租户维护账号与角色；平台超管可跨租户创建用户。</p>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">用户管理</h1>
+        <p class="am-page-head__desc">按租户维护账号与角色；平台超管可跨租户创建用户。</p>
       </div>
-      <el-button :icon="'Plus'" @click="openCreate">新增用户</el-button>
+      <div class="am-page-head__actions">
+        <el-button type="primary" :icon="'Plus'" @click="openCreate">新增用户</el-button>
+      </div>
     </div>
 
     <div class="am-card">

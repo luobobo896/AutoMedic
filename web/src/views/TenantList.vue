@@ -2,10 +2,13 @@
   <div class="am-page">
     <div class="am-page-head">
       <div>
-        <h2 class="am-page-title">租户管理</h2>
-        <p class="am-page-desc">租户是数据隔离边界：项目、仓库、凭证、规则、事件、任务均归属某个租户。</p>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">租户管理</h1>
+        <p class="am-page-head__desc">租户是数据隔离边界：项目、仓库、凭证、规则、事件、任务均归属某个租户。</p>
       </div>
-      <el-button :icon="'Plus'" @click="openCreate">新增租户</el-button>
+      <div class="am-page-head__actions">
+        <el-button type="primary" :icon="'Plus'" @click="openCreate">新增租户</el-button>
+      </div>
     </div>
 
     <div class="am-card-grid">

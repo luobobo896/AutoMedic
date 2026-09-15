@@ -1,11 +1,18 @@
 <template>
   <div class="am-page">
+    <div class="am-page-head">
+      <div>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">凭证中心</h1>
+        <p class="am-page-head__desc">
+          SSH 私钥 / 账号密码 / HTTP Token 统一加密存储（AES-256-GCM），可被多个项目与仓库复用，使用记录可追溯。
+        </p>
+      </div>
+    </div>
+
     <div class="am-card">
       <div class="am-toolbar">
         <el-button type="primary" :icon="'Plus'" @click="openCreate">新增凭证</el-button>
-        <span class="am-text-dim" style="font-size: var(--am-font-xs)">
-          凭证加密存储（AES-256-GCM），可被多个项目 / 仓库复用
-        </span>
         <div class="am-flex-1" />
         <el-button :icon="'Refresh'" @click="load" />
       </div>

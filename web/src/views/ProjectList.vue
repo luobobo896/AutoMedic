@@ -1,5 +1,15 @@
 <template>
   <div class="am-page">
+    <div class="am-page-head">
+      <div>
+        <div class="am-page-head__crumb">首页</div>
+        <h1 class="am-page-head__title">项目管理</h1>
+        <p class="am-page-head__desc">
+          一个项目 = 一个业务线：项目下挂多个仓库、修复规则与投递令牌，告警按项目归属隔离。
+        </p>
+      </div>
+    </div>
+
     <!-- 上手引导：首次进入默认展示，关掉后可从工具栏再次打开 -->
     <div class="am-card am-guide" v-if="showGuide">
       <div class="am-guide__head">
